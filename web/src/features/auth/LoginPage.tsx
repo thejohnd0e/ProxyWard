@@ -7,7 +7,7 @@ function describe(err: unknown): string {
     if (err.code === 'invalid_credentials') return 'The password is not correct.';
     if (err.code === 'rate_limited') return 'Too many attempts. Wait a minute and try again.';
     if (err.code === 'not_initialized') {
-      return 'No administrator password is set yet. Run "proxyward admin set-password" on the server first.';
+      return 'No administrator password is set yet. Reload this page to create it.';
     }
     return err.message;
   }
@@ -42,7 +42,7 @@ export function LoginPage() {
   return (
     <main className="login">
       <form className="login__card" onSubmit={(e) => void submit(e)} noValidate>
-        <h1>Proxy Checker</h1>
+        <h1>ProxyWard</h1>
         <p className="muted">Sign in to see the state of your proxies.</p>
         {error ? (
           <p role="alert" className="notice notice--error">

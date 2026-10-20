@@ -44,6 +44,26 @@ func (s *Store) SetAdminPasswordHash(ctx context.Context, hash string, now time.
 	return tx.Commit()
 }
 
+// CreateAdminIfAbsent stores the first administrator password hash. It reports
+// false, and changes nothing, when an administrator already exists: the check
+// and the insert are one statement, so concurrent first-run requests cannot
+// both succeed.
+func (s *Store) CreateAdminIfAbsent(ctx context.Context, hash string, now time.Time) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO admin (id, password_hash, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO NOTHING`,
+		hash, now.UTC().UnixMilli())
+	if err != nil {
+		return false, fmt.Errorf("create admin: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("create admin: %w", err)
+	}
+	return n == 1, nil
+}
+
 // CreateSession records a session by the digest of its token.
 func (s *Store) CreateSession(ctx context.Context, tokenDigest string, createdAt, expiresAt time.Time) error {
 	s.writeMu.Lock()

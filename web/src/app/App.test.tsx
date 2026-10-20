@@ -34,7 +34,7 @@ describe('authentication', () => {
   it('requires a login: protected pages show the sign-in form when there is no session', async () => {
     e.session.mockResolvedValue({ authenticated: false });
     mount('/settings');
-    expect(await screen.findByRole('heading', { name: 'Proxy Checker' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'ProxyWard' })).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
     expect(e.getSettings).not.toHaveBeenCalled();
@@ -84,7 +84,47 @@ describe('authentication', () => {
 
     e.login.mockRejectedValueOnce(new ApiError(503, 'not_initialized', 'x'));
     await submit('again');
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('proxyward admin set-password'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('create it'));
+  });
+
+  it('offers first-run setup when no administrator exists and signs in after creating the password', async () => {
+    e.session.mockResolvedValue({ authenticated: false, needs_setup: true });
+    e.setupAdmin.mockResolvedValue({ csrf_token: 'csrf-setup' });
+    mount();
+    const user = userEvent.setup();
+    expect(await screen.findByRole('heading', { name: 'Welcome to ProxyWard' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('New password'), 'short');
+    await user.type(screen.getByLabelText('Repeat the password'), 'short');
+    await user.click(screen.getByRole('button', { name: 'Create password' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('at least 12 characters');
+
+    await user.clear(screen.getByLabelText('New password'));
+    await user.clear(screen.getByLabelText('Repeat the password'));
+    await user.type(screen.getByLabelText('New password'), 'a long enough password');
+    await user.type(screen.getByLabelText('Repeat the password'), 'a different password');
+    await user.click(screen.getByRole('button', { name: 'Create password' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('do not match');
+    expect(e.setupAdmin).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText('Repeat the password'));
+    await user.type(screen.getByLabelText('Repeat the password'), 'a long enough password');
+    await user.click(screen.getByRole('button', { name: 'Create password' }));
+    expect(await screen.findByText('Visible after login')).toBeInTheDocument();
+    expect(e.setupAdmin).toHaveBeenCalledWith('a long enough password');
+    expect(getCsrfToken()).toBe('csrf-setup');
+  });
+
+  it('tells the user to sign in when someone else finished the setup first', async () => {
+    e.session.mockResolvedValue({ authenticated: false, needs_setup: true });
+    e.setupAdmin.mockRejectedValue(new ApiError(409, 'already_initialized', 'x'));
+    mount();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText('New password'), 'a long enough password');
+    await user.type(screen.getByLabelText('Repeat the password'), 'a long enough password');
+    await user.click(screen.getByRole('button', { name: 'Create password' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reload the page and sign in');
   });
 
   it('asks for a password instead of sending an empty one', async () => {

@@ -59,6 +59,7 @@ func New(db *store.Store, cipher *secrets.Cipher, opts ...Option) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/login", s.login)
+	mux.HandleFunc("POST /api/auth/setup", s.setup)
 	mux.HandleFunc("GET /api/auth/session", s.session)
 	mux.Handle("POST /api/auth/logout", s.auth.Require(http.HandlerFunc(s.logout)))
 	mux.Handle("PUT /api/auth/password", s.auth.Require(http.HandlerFunc(s.changePassword)))

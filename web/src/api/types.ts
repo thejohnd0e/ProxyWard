@@ -256,4 +256,6 @@ export interface SettingsUpdate {
 export interface SessionInfo {
   authenticated: boolean;
   csrf_token?: string;
+  /** True while no administrator password exists yet (first run). */
+  needs_setup?: boolean;
 }

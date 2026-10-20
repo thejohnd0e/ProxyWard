@@ -16,20 +16,21 @@ How to run, back up, restore and upgrade Proxy Checker in Docker on a Debian hos
 
 `PORT` is the host port. `start.sh` picks the first free one from 8080 and saves it in `.env`; plain `docker compose up -d` uses 8080 and fails if it is taken. You can set it freely; check what is taken with `ss -ltn`. The port inside the container stays 8080, so the health check is unaffected. `BIND_ADDRESS` (default `0.0.0.0`) chooses the host address the port is published on: `127.0.0.1` for this machine only, or a specific LAN address. Docker publishes ports around the host firewall, so on a machine with a public address set it explicitly.
 
-Set the administrator password (at least 12 characters; it is never a command argument):
+The first visit to the web interface asks for the administrator password (at least 12 characters) and signs you in. Until it is created, whoever opens the page first can create it, so do this right after starting. The command line can still set or reset it on the server:
 
 ```sh
 docker compose run --rm proxyward admin set-password        # interactive prompt (TTY)
-printf '%s\n' "$PASSWORD" | docker compose run --rm -T proxyward admin set-password   # from stdin
+printf '%s
+' "$PASSWORD" | docker compose run --rm -T proxyward admin set-password   # from stdin
 ```
 
-Then open `http://<host address>:PORT/`. Check health with `docker compose ps` (status `healthy`) or `curl http://<host address>:PORT/healthz`.
+Open `http://<host address>:PORT/`. Check health with `docker compose ps` (status `healthy`) or `curl http://<host address>:PORT/healthz`.
 
 ## Network exposure
 
 - The interface is plain HTTP on the LAN. Session cookies are `HttpOnly` and `SameSite=Strict` but not `Secure` by default, so anyone who can observe LAN traffic can read the session. Use it only on a network you trust, or put a TLS reverse proxy in front and set `SESSION_SECURE=true` in `.env`.
 - Sign-ins are limited to 5 per minute per client and 20 per minute globally; `X-Forwarded-For` is ignored.
-- Restrict access with your host firewall (for example allow `8080/tcp` only from your management addresses). The application does not change firewall or router settings.
+- Restrict access with `BIND_ADDRESS` and your host firewall. Docker publishes ports through its own iptables rules, so a ufw rule alone may not block a published port; prefer `BIND_ADDRESS` or rules in the `DOCKER-USER` chain. The application does not change firewall or router settings.
 - Do not publish the port to the internet.
 
 ## Data and the secrets key

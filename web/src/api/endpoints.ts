@@ -24,6 +24,8 @@ import type {
 
 export const session = (signal?: AbortSignal) => api<SessionInfo>('/api/auth/session', { signal });
 export const login = (password: string) => api<{ csrf_token: string }>('/api/auth/login', { method: 'POST', body: { password } });
+export const setupAdmin = (password: string) =>
+  api<{ csrf_token: string }>('/api/auth/setup', { method: 'POST', body: { password } });
 export const logout = () => api('/api/auth/logout', { method: 'POST' });
 export const changePassword = (current_password: string, new_password: string) =>
   api('/api/auth/password', { method: 'PUT', body: { current_password, new_password } });

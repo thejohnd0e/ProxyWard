@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { LoginPage } from '../features/auth/LoginPage';
+import { SetupPage } from '../features/auth/SetupPage';
 import { EventPage } from '../features/events/EventPage';
 import { ProxyDetail } from '../features/proxies/ProxyDetail';
 import { ProxyPage } from '../features/proxies/ProxyPage';
@@ -13,7 +14,7 @@ function Shell() {
   return (
     <div className="app">
       <header className="sidebar">
-        <div className="brand">Proxy Checker</div>
+        <div className="brand">ProxyWard</div>
         <nav aria-label="Main">
           <NavLink to="/proxies">Proxies</NavLink>
           <NavLink to="/events">Events</NavLink>
@@ -51,6 +52,9 @@ export function App() {
         Loading…
       </p>
     );
+  }
+  if (state.status === 'setup') {
+    return <SetupPage />;
   }
   if (state.status === 'anonymous') {
     return <LoginPage />;

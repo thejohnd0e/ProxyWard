@@ -35,5 +35,4 @@ docker compose up -d --build
 host=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "ProxyWard is starting. Open http://${host:-<address of this machine>}:${port}/"
-echo "First time? Set the administrator password:"
-echo "  docker compose run --rm proxyward admin set-password"
+echo "On the first visit you will be asked to create the administrator password."

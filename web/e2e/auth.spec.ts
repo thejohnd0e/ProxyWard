@@ -8,7 +8,7 @@ test.describe('authentication', () => {
   test('protected pages require a sign-in and a wrong password is explained', async ({ page, request }, info) => {
     const fx = await fixtures(request);
     await page.goto('/settings');
-    await expect(page.getByRole('heading', { name: 'Proxy Checker' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ProxyWard' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Settings' })).toHaveCount(0);
     await shot(page, info, 'login');
 

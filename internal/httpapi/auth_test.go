@@ -382,3 +382,94 @@ func TestSecretsNeverAppearInResponsesOrLogs(t *testing.T) {
 		}
 	}
 }
+
+func (e *env) setup(password string) (cookie, csrf string, r resp) {
+	e.t.Helper()
+	b, _ := json.Marshal(map[string]string{"password": password})
+	r = e.do("POST", "/api/auth/setup", string(b), nil, "")
+	for _, c := range (&http.Response{Header: r.header}).Cookies() {
+		if c.Name == auth.CookieName {
+			cookie = c.Value
+		}
+	}
+	var out struct {
+		CSRF string `json:"csrf_token"`
+	}
+	_ = json.Unmarshal([]byte(r.body), &out)
+	return cookie, out.CSRF, r
+}
+
+func TestFirstRunSetupCreatesTheAdministratorAndSignsIn(t *testing.T) {
+	e := newEnv(t, false)
+	if r := e.do("GET", "/api/auth/session", "", nil, ""); !strings.Contains(r.body, `"needs_setup":true`) {
+		t.Fatalf("session before setup: %s", r.body)
+	}
+	cookie, csrf, r := e.setup(adminPassword)
+	if r.status != 200 || cookie == "" || csrf == "" {
+		t.Fatalf("setup: %d %s", r.status, r.body)
+	}
+	if !e.sessionAuthenticated(cookie) {
+		t.Fatal("the setup session is not authenticated")
+	}
+	if strings.Contains(r.body, adminPassword) {
+		t.Fatal("the password appears in the response")
+	}
+	if r := e.do("GET", "/api/auth/session", "", nil, ""); strings.Contains(r.body, `"needs_setup":true`) {
+		t.Fatalf("setup still offered after it was done: %s", r.body)
+	}
+	if _, _, r := e.login(adminPassword); r.status != 200 {
+		t.Fatalf("login with the new password: %d", r.status)
+	}
+}
+
+func TestSetupIsRefusedOnceAnAdministratorExists(t *testing.T) {
+	e := newEnv(t, true)
+	if _, _, r := e.setup(newPassword); r.status != 409 || !strings.Contains(r.body, "already_initialized") {
+		t.Fatalf("setup over an administrator: %d %s", r.status, r.body)
+	}
+	if _, _, r := e.login(adminPassword); r.status != 200 {
+		t.Fatalf("the original password stopped working: %d", r.status)
+	}
+	if _, _, r := e.login(newPassword); r.status != 401 {
+		t.Fatalf("the attacker's password works: %d", r.status)
+	}
+}
+
+func TestSetupRejectsShortPasswordsAndForeignOrigins(t *testing.T) {
+	e := newEnv(t, false)
+	if _, _, r := e.setup("short"); r.status != 422 {
+		t.Fatalf("short password: %d %s", r.status, r.body)
+	}
+	b, _ := json.Marshal(map[string]string{"password": adminPassword})
+	if r := e.do("POST", "/api/auth/setup", string(b), map[string]string{"Origin": "http://evil.example"}, ""); r.status != 403 {
+		t.Fatalf("foreign origin: %d", r.status)
+	}
+	if r := e.do("GET", "/api/auth/session", "", nil, ""); !strings.Contains(r.body, `"needs_setup":true`) {
+		t.Fatalf("a rejected setup must leave the installation open: %s", r.body)
+	}
+}
+
+func TestConcurrentSetupHasExactlyOneWinner(t *testing.T) {
+	e := newEnv(t, false)
+	var wins, conflicts atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _, r := e.setup("first-run password " + string(rune('a'+i)))
+			switch r.status {
+			case 200:
+				wins.Add(1)
+			case 409:
+				conflicts.Add(1)
+			default:
+				t.Errorf("unexpected status %d: %s", r.status, r.body)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if wins.Load() != 1 || conflicts.Load() != 3 {
+		t.Fatalf("wins=%d conflicts=%d", wins.Load(), conflicts.Load())
+	}
+}

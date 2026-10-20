@@ -56,6 +56,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.startSession(w, r)
+}
+
+// startSession creates a session, sets its cookie and returns the CSRF token.
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 	token, err := auth.NewToken()
 	if err != nil {
 		s.internalError(w, "new session token", err)
@@ -74,10 +79,64 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	apierr.JSON(w, http.StatusOK, map[string]any{"csrf_token": auth.CSRFToken(token)})
 }
 
+// setup creates the administrator password on first run and signs the caller
+// in. It works only while no administrator exists; afterwards it answers 409.
+func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
+	if !auth.OriginAllowed(r) {
+		apierr.Write(w, http.StatusForbidden, "forbidden_origin", "Cross-origin request rejected.", nil)
+		return
+	}
+	peer := peerAddr(r)
+	if ok, wait := s.limiter.Allow(peer); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		apierr.Write(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts. Try again later.", nil)
+		return
+	}
+	var req loginRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	alreadySet := func() {
+		apierr.Write(w, http.StatusConflict, "already_initialized", "The administrator password is already set.", nil)
+	}
+	if _, err := s.db.AdminPasswordHash(r.Context()); err == nil {
+		alreadySet()
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.internalError(w, "read admin", err)
+		return
+	}
+	if err := auth.ValidatePassword(req.Password); err != nil {
+		apierr.Write(w, http.StatusUnprocessableEntity, "validation_failed", "Password is not acceptable.",
+			map[string]string{"password": err.Error()})
+		return
+	}
+	hash, err := auth.Hash(req.Password)
+	if err != nil {
+		s.internalError(w, "hash password", err)
+		return
+	}
+	created, err := s.db.CreateAdminIfAbsent(r.Context(), hash, s.clock.Now())
+	if err != nil {
+		s.internalError(w, "create admin", err)
+		return
+	}
+	if !created {
+		alreadySet()
+		return
+	}
+	s.logger.Info("administrator password created", "peer", peer)
+	s.startSession(w, r)
+}
+
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.auth.Identify(r)
 	if !ok {
-		apierr.JSON(w, http.StatusOK, map[string]any{"authenticated": false})
+		_, err := s.db.AdminPasswordHash(r.Context())
+		apierr.JSON(w, http.StatusOK, map[string]any{
+			"authenticated": false,
+			"needs_setup":   errors.Is(err, store.ErrNotFound),
+		})
 		return
 	}
 	apierr.JSON(w, http.StatusOK, map[string]any{

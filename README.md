@@ -28,32 +28,15 @@ Stack: Go, React/TypeScript and SQLite in one Docker container on Debian with a 
 
 Requirements: Docker Engine with the Compose plugin.
 
-**1. Get the code**
-
 ```text
-git clone https://github.com/thejohnd0e/ProxyWard.git
-cd ProxyWard
+git clone https://github.com/thejohnd0e/ProxyWard.git && cd ProxyWard && ./start.sh
 ```
 
-**2. Start it**
+That is the whole installation. The script picks a free port (8080 if it is free, otherwise the next free one), builds and starts the container, and prints the address, for example `http://192.168.0.10:8080/`.
 
-```text
-./start.sh
-```
+Open that address in a browser. On the first visit ProxyWard asks you to create the administrator password (at least 12 characters); after that you sign in with it.
 
-The script picks a free port (8080 if it is free, otherwise the next free one), remembers it in `.env`, builds and starts the container, and prints the address to open. Run it again any time; it keeps the same port.
-
-**3. Set the administrator password**
-
-```text
-docker compose run --rm proxyward admin set-password
-```
-
-It needs at least 12 characters.
-
-**4. Open the interface**
-
-Open the address that `start.sh` printed, for example `http://192.168.0.10:8080/`, and sign in. On the machine itself, `http://localhost:<port>/` works too.
+**Create the password right away.** Until it exists, whoever opens the page first can create it. Do this before you leave the service reachable from a network you do not fully trust.
 
 **Optional settings.** They live in `.env` (see `.env.example`). After editing it, run `./start.sh` again.
 
@@ -62,6 +45,8 @@ Open the address that `start.sh` printed, for example `http://192.168.0.10:8080/
 - `SESSION_SECURE=true`: only when the interface is served over HTTPS.
 
 The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true` in `.env`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
+
+Forgot the password? Reset it on the server: `docker compose run --rm proxyward admin set-password`.
 
 Backup and restore:
 
