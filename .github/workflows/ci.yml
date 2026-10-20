@@ -47,6 +47,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose file
-        run: LAN_IP=127.0.0.1 docker compose config --quiet
+        run: docker compose config --quiet
       - name: Build image
         run: docker build -t proxyward:ci .

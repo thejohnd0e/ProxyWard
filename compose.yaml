@@ -1,4 +1,4 @@
-# Run: cp .env.example .env, set LAN_IP, then `docker compose up -d --build`.
+# Run: docker compose up -d --build   (optional settings: see .env.example)
 # The port is published only on the LAN address you name, never on 0.0.0.0.
 
 name: proxyward
@@ -9,7 +9,7 @@ services:
     image: proxyward:local
     restart: unless-stopped
     ports:
-      - "${LAN_IP:?set LAN_IP in .env to this host's LAN address}:${PORT:-8080}:8080"
+      - "${BIND_ADDRESS:-0.0.0.0}:${PORT:-8080}:8080"
     environment:
       # Set to true only when the interface is reached over HTTPS (for example behind a TLS proxy).
       PROXYWARD_SESSION_SECURE: "${SESSION_SECURE:-false}"

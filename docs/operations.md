@@ -5,18 +5,16 @@ How to run, back up, restore and upgrade Proxy Checker in Docker on a Debian hos
 ## Requirements
 
 - Docker Engine with the Compose plugin.
-- A LAN address on the host for the web interface (for example `192.168.0.10`).
 - Outbound internet access from the container: the proxies you monitor, `api.ipify.org`, `checkip.amazonaws.com`, `speed.cloudflare.com`, and optionally `api.ipapi.is` and `api.telegram.org`.
 
 ## First start
 
 ```sh
-cp .env.example .env
-# edit .env: set LAN_IP to this host's LAN address, and PORT if 8080 is already used
-docker compose up -d --build
+# optional: edit .env (PORT, BIND_ADDRESS, SESSION_SECURE)
+./start.sh      # picks a free port, saves it in .env, builds and starts (or: docker compose up -d --build)
 ```
 
-`PORT` (default 8080) is the host port and can be changed freely; check what is taken with `ss -ltn`. The port inside the container stays 8080, so the health check is unaffected. `LAN_IP` is required. Compose publishes the port only on that address (`LAN_IP:8080`), never on `0.0.0.0`. Without it `docker compose` stops with an explicit error.
+`PORT` is the host port. `start.sh` picks the first free one from 8080 and saves it in `.env`; plain `docker compose up -d` uses 8080 and fails if it is taken. You can set it freely; check what is taken with `ss -ltn`. The port inside the container stays 8080, so the health check is unaffected. `BIND_ADDRESS` (default `0.0.0.0`) chooses the host address the port is published on: `127.0.0.1` for this machine only, or a specific LAN address. Docker publishes ports around the host firewall, so on a machine with a public address set it explicitly.
 
 Set the administrator password (at least 12 characters; it is never a command argument):
 
@@ -25,7 +23,7 @@ docker compose run --rm proxyward admin set-password        # interactive prompt
 printf '%s\n' "$PASSWORD" | docker compose run --rm -T proxyward admin set-password   # from stdin
 ```
 
-Then open `http://LAN_IP:PORT/`. Check health with `docker compose ps` (status `healthy`) or `curl http://LAN_IP:PORT/healthz`.
+Then open `http://<host address>:PORT/`. Check health with `docker compose ps` (status `healthy`) or `curl http://<host address>:PORT/healthz`.
 
 ## Network exposure
 
@@ -94,6 +92,6 @@ Run the same `admin set-password` command as for the first start. Stop and start
 
 ## Verification status
 
-Verified on the Debian 13 VM: image build, compose config and the required-`LAN_IP` error, LAN-only socket binding, healthcheck, security headers, password setup, proxy creation with a stored password (never returned by the API), persistence across `--force-recreate`, data file modes, backup while running, restore into a disposable volume (the restored instance accepted the password and kept the proxy and its stored password), graceful stop.
+Verified on the Debian 13 VM: image build, compose config, socket binding on the chosen address, healthcheck, security headers, password setup, proxy creation with a stored password (never returned by the API), persistence across `--force-recreate`, data file modes, backup while running, restore into a disposable volume (the restored instance accepted the password and kept the proxy and its stored password), graceful stop.
 
 Not verified (needs supplied credentials or hardware): monitoring of real HTTP/HTTPS/SOCKS5 proxies from Debian, a real ipapi.is key, a real Telegram bot, IPv6 egress, behaviour behind a TLS reverse proxy.

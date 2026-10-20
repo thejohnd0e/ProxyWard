@@ -26,7 +26,7 @@ Stack: Go, React/TypeScript and SQLite in one Docker container on Debian with a 
 
 ## Install (Docker)
 
-Requirements: Docker Engine with the Compose plugin, and a LAN address on the host.
+Requirements: Docker Engine with the Compose plugin.
 
 **1. Get the code**
 
@@ -35,35 +35,31 @@ git clone https://github.com/thejohnd0e/ProxyWard.git
 cd ProxyWard
 ```
 
-**2. Create the settings file and edit it**
+**2. Start it**
 
 ```text
-cp .env.example .env
-nano .env
+./start.sh
 ```
 
-`.env` is a small text file with these lines (change the values, keep the names):
+The script picks a free port (8080 if it is free, otherwise the next free one), remembers it in `.env`, builds and starts the container, and prints the address to open. Run it again any time; it keeps the same port.
+
+**3. Set the administrator password**
 
 ```text
-LAN_IP=192.168.0.10
-PORT=8080
-```
-
-- `LAN_IP`: the address of this machine on your local network. Required. ProxyWard listens only on this address.
-- `PORT`: the port the web interface will use. Pick any free port if 8080 is already taken, for example `PORT=9090`. To see which ports are in use: `ss -ltn`.
-
-**3. Start it and set the administrator password**
-
-```text
-docker compose up -d --build
 docker compose run --rm proxyward admin set-password
 ```
 
-The password needs at least 12 characters.
+It needs at least 12 characters.
 
 **4. Open the interface**
 
-Go to `http://LAN_IP:PORT/` with your values, for example `http://192.168.0.10:9090/`, and sign in. To change the port later, edit `PORT` in `.env` and run `docker compose up -d` again.
+Open the address that `start.sh` printed, for example `http://192.168.0.10:8080/`, and sign in. On the machine itself, `http://localhost:<port>/` works too.
+
+**Optional settings.** They live in `.env` (see `.env.example`). After editing it, run `./start.sh` again.
+
+- `PORT`: the port to use, for example `PORT=9090`. `start.sh` fills it in for you; edit it only if you want a specific port. If you start with plain `docker compose up -d` instead, the default is 8080 and Docker reports an error when it is taken.
+- `BIND_ADDRESS`: which address of the machine ProxyWard listens on. The default `0.0.0.0` means every address, so other devices can reach it. Use `127.0.0.1` to allow only the machine itself, or one of its LAN addresses to listen on that network only. If the machine has a public internet address, set this: Docker publishes ports around the host firewall.
+- `SESSION_SECURE=true`: only when the interface is served over HTTPS.
 
 The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true` in `.env`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
 
