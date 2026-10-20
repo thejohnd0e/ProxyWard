@@ -275,6 +275,17 @@ function GeoCard({ settings, onSaved }: { settings: SettingsView; onSaved: (s: S
         {g.has_key ? 'An ipapi.is key is saved.' : 'Not configured.'} Without a key, countries and networks are not looked up.
       </p>
       <p className="muted">
+        The key comes from ipapi.is: create a free account at{' '}
+        <a href="https://ipapi.is/" target="_blank" rel="noopener noreferrer">
+          ipapi.is
+        </a>{' '}
+        and copy the API key from your account. The free plan allows 1000 lookups a day; see the{' '}
+        <a href="https://ipapi.is/developers.html" target="_blank" rel="noopener noreferrer">
+          documentation
+        </a>
+        .
+      </p>
+      <p className="muted">
         Used today: {g.used_today} of {g.daily_limit} lookups.
         {g.paused ? ` Lookups are paused (${g.pause_reason === 'forbidden' ? 'the key was refused' : g.pause_reason === 'rate_limited' ? 'rate limited' : 'temporarily unavailable'}${g.retry_at ? `, until ${formatDateTime(g.retry_at)}` : ''}).` : ''}
       </p>

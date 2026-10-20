@@ -209,3 +209,14 @@ describe('SettingsPage', () => {
     expect(await screen.findByText(/flag-icons package \(MIT license\)/)).toBeInTheDocument();
   });
 });
+
+describe('SettingsPage location key help', () => {
+  it('tells where to get the ipapi.is key and links to the site and the documentation', async () => {
+    e.getSettings.mockResolvedValue(makeSettings());
+    mount();
+    const region = await screen.findByRole('region', { name: 'Location lookup' });
+    expect(within(region).getByText(/create a free account/i)).toBeInTheDocument();
+    expect(within(region).getByRole('link', { name: 'ipapi.is' })).toHaveAttribute('href', 'https://ipapi.is/');
+    expect(within(region).getByRole('link', { name: 'documentation' })).toHaveAttribute('href', 'https://ipapi.is/developers.html');
+  });
+});

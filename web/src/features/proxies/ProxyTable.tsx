@@ -86,6 +86,7 @@ export function ProxyTable({ proxies, geoConfigured, selected, onToggle, onToggl
             </th>
             <th scope="col">Proxy</th>
             <th scope="col">Status</th>
+            <th scope="col">Exit IP</th>
             <th scope="col">Location</th>
             <th scope="col">Network</th>
             <th scope="col">Latency</th>
@@ -133,9 +134,11 @@ export function ProxyTable({ proxies, geoConfigured, selected, onToggle, onToggl
                 </div>
                 {p.status.failure ? <div className="failure">{p.status.failure.message}</div> : null}
               </td>
+              <td data-label="Exit IP" aria-label="Exit IP" title="The public address the internet sees when traffic goes through this proxy">
+                {p.status.exit_ip ? <span className="mono">{p.status.exit_ip}</span> : '—'}
+              </td>
               <td data-label="Location">
                 <Location proxy={p} geoConfigured={geoConfigured} />
-                {p.status.exit_ip ? <div className="mono muted">{p.status.exit_ip}</div> : null}
               </td>
               <td data-label="Network" aria-label="Network">
                 <Network proxy={p} />

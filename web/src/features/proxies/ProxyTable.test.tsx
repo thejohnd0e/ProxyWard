@@ -97,6 +97,15 @@ describe('ProxyTable', () => {
     expect(within(row('NoData')).getByText('Unknown')).toBeInTheDocument();
   });
 
+  it('shows the exit IP in its own column, separate from the proxy address', () => {
+    const p = makeUpProxy({ name: 'Gateway' });
+    setup([p]);
+    const r = within(row('Gateway'));
+    expect(r.getByLabelText('Exit IP')).toHaveTextContent('198.51.100.7');
+    expect(r.getByLabelText('Exit IP')).not.toHaveTextContent('10.0.0.5');
+    expect(r.getByText(/10\.0\.0\.5/)).toBeInTheDocument();
+  });
+
   it('marks stale geolocation in words', () => {
     const p = makeUpProxy({ name: 'Old' });
     p.geo = { ...p.geo!, stale: true, status: 'stale' };
