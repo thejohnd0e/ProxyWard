@@ -1,0 +1,40 @@
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Common generated output (retain only if relevant to the chosen stack)
+/web/dist/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+build/
+coverage/
+__pycache__/
+*.py[cod]
+node_modules/
+
+# Local runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# End-to-end stand binary and Playwright output
+/.e2e/
+/web/test-results/
+/web/playwright-report/
+/web/e2e-screenshots/
+/web/e2e/.auth/
+
+# Agent and tool service files
+/.omo/
+/.claude/
+.claude/settings.local.json

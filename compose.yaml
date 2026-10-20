@@ -1,0 +1,33 @@
+# Run: cp .env.example .env, set LAN_IP, then `docker compose up -d --build`.
+# The port is published only on the LAN address you name, never on 0.0.0.0.
+
+name: proxy-checker
+
+services:
+  proxy-checker:
+    build: .
+    image: proxy-checker:local
+    restart: unless-stopped
+    ports:
+      - "${LAN_IP:?set LAN_IP in .env to this host's LAN address}:${PORT:-8080}:8080"
+    environment:
+      # Set to true only when the interface is reached over HTTPS (for example behind a TLS proxy).
+      PROXY_CHECKER_SESSION_SECURE: "${SESSION_SECURE:-false}"
+    volumes:
+      - proxy-checker-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  proxy-checker-data:
