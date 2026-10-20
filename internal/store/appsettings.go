@@ -15,17 +15,18 @@ const appSettingsKey = "app.settings"
 // settingsJSON is the stored shape. Absent fields keep their default, so
 // newer versions can add settings without migrating old rows.
 type settingsJSON struct {
-	AvailabilityEnabled     bool  `json:"availability_enabled"`
-	AvailabilityIntervalS   int64 `json:"availability_interval_s"`
-	SpeedEnabled            bool  `json:"speed_enabled"`
-	SpeedIntervalS          int64 `json:"speed_interval_s"`
-	AvailabilityConcurrency int   `json:"availability_concurrency"`
-	AvailabilityTimeoutS    int64 `json:"availability_timeout_s"`
-	SpeedSampleBytes        int64 `json:"speed_sample_bytes"`
-	SpeedWarmupBytes        int64 `json:"speed_warmup_bytes"`
-	SpeedDirectionTimeoutS  int64 `json:"speed_direction_timeout_s"`
-	DownThreshold           int   `json:"down_threshold"`
-	RetentionDays           int   `json:"retention_days"`
+	AvailabilityEnabled     bool   `json:"availability_enabled"`
+	AvailabilityIntervalS   int64  `json:"availability_interval_s"`
+	SpeedEnabled            bool   `json:"speed_enabled"`
+	SpeedIntervalS          int64  `json:"speed_interval_s"`
+	AvailabilityConcurrency int    `json:"availability_concurrency"`
+	AvailabilityTimeoutS    int64  `json:"availability_timeout_s"`
+	SpeedSampleBytes        int64  `json:"speed_sample_bytes"`
+	SpeedWarmupBytes        int64  `json:"speed_warmup_bytes"`
+	SpeedDirectionTimeoutS  int64  `json:"speed_direction_timeout_s"`
+	DownThreshold           int    `json:"down_threshold"`
+	RetentionDays           int    `json:"retention_days"`
+	GeoSource               string `json:"geo_source"`
 }
 
 func toJSON(s domain.Settings) settingsJSON {
@@ -35,7 +36,7 @@ func toJSON(s domain.Settings) settingsJSON {
 		AvailabilityConcurrency: s.AvailabilityConcurrency, AvailabilityTimeoutS: int64(s.AvailabilityTimeout / time.Second),
 		SpeedSampleBytes: s.SpeedSampleBytes, SpeedWarmupBytes: s.SpeedWarmupBytes,
 		SpeedDirectionTimeoutS: int64(s.SpeedDirectionTimeout / time.Second),
-		DownThreshold:          s.DownThreshold, RetentionDays: s.RetentionDays,
+		DownThreshold:          s.DownThreshold, RetentionDays: s.RetentionDays, GeoSource: s.GeoSource,
 	}
 }
 
@@ -50,6 +51,7 @@ func (j settingsJSON) settings() domain.Settings {
 		SpeedDirectionTimeout:   time.Duration(j.SpeedDirectionTimeoutS) * time.Second,
 		DownThreshold:           j.DownThreshold,
 		RetentionDays:           j.RetentionDays,
+		GeoSource:               j.GeoSource,
 	}
 }
 

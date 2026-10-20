@@ -8,12 +8,10 @@ import (
 	"time"
 
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
-	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 const (
 	apiToken = "123456789:AAH_api-TOKEN-value-1234567890abcd"
-	apiGeo   = "geo-KEY-for-the-api-tests"
 )
 
 func getSettings(t *testing.T, s *session) m {
@@ -68,8 +66,14 @@ func TestDefaultSettings(t *testing.T) {
 		sub(t, v, "monitoring", "retention_days") != float64(30) {
 		t.Fatalf("monitoring defaults: %v", v["monitoring"])
 	}
-	if sub(t, v, "geo", "has_key") != false || sub(t, v, "geo", "daily_limit") != float64(1000) || sub(t, v, "geo", "used_today") != float64(0) {
+	if sub(t, v, "geo", "source") != "auto" {
 		t.Fatalf("geo: %v", v["geo"])
+	}
+	if list, _ := sub(t, v, "geo", "sources").([]any); len(list) != 2 || list[0].(m)["id"] != "alpha" || list[0].(m)["name"] != "Alpha" || list[0].(m)["site"] != "https://alpha.example/" {
+		t.Fatalf("sources: %v", v["geo"])
+	}
+	if _, has := v["geo"].(m)["has_key"]; has {
+		t.Fatal("there is no geolocation key any more")
 	}
 	if sub(t, v, "telegram", "has_token") != false || sub(t, v, "telegram", "configured") != false || sub(t, v, "telegram", "chat_id") != "" {
 		t.Fatalf("telegram: %v", v["telegram"])
@@ -145,9 +149,10 @@ func TestSettingsValidation(t *testing.T) {
 		"null token":         {m{"telegram": m{"bot_token": nil}}, "bot_token"},
 		"bad chat":           {m{"telegram": m{"chat_id": "12/34"}}, "chat_id"},
 		"null chat":          {m{"telegram": m{"chat_id": nil}}, "chat_id"},
-		"null geo key":       {m{"geo": m{"api_key": nil}}, "api_key"},
-		"long geo key":       {m{"geo": m{"api_key": strings.Repeat("k", 300)}}, "api_key"},
-		"geo key whitespace": {m{"geo": m{"api_key": "a b"}}, "api_key"},
+		"null geo source":    {m{"geo": m{"source": nil}}, "geo_source"},
+		"unknown geo source": {m{"geo": m{"source": "evil"}}, "geo_source"},
+		"empty geo source":   {m{"geo": m{"source": ""}}, "geo_source"},
+		"long geo source":    {m{"geo": m{"source": strings.Repeat("k", 300)}}, "geo_source"},
 	} {
 		r := s.call("PUT", "/api/settings", tc.body)
 		if r.status != 422 {
@@ -177,23 +182,20 @@ func TestSecretsAreWriteOnlyAndMasked(t *testing.T) {
 	s := newSession(t)
 	r := s.call("PUT", "/api/settings", m{
 		"telegram": m{"bot_token": apiToken, "chat_id": "-1001234"},
-		"geo":      m{"api_key": apiGeo},
 	})
 	if r.status != 200 {
 		t.Fatalf("%d %s", r.status, r.body)
 	}
 	v := decode(t, r)
-	if sub(t, v, "telegram", "has_token") != true || sub(t, v, "telegram", "configured") != true || sub(t, v, "telegram", "chat_id") != "-1001234" ||
-		sub(t, v, "geo", "has_key") != true {
+	if sub(t, v, "telegram", "has_token") != true || sub(t, v, "telegram", "configured") != true || sub(t, v, "telegram", "chat_id") != "-1001234" {
 		t.Fatalf("%v", v)
 	}
 	got := getSettings(t, s)
-	if sub(t, got, "telegram", "has_token") != true || sub(t, got, "geo", "has_key") != true {
+	if sub(t, got, "telegram", "has_token") != true {
 		t.Fatalf("%v", got)
 	}
 	cfg, _ := s.e.db.GetTelegram(context.Background())
-	key, ok, _ := s.e.db.GeoKey(context.Background())
-	if cfg.Token != apiToken || !ok || key != apiGeo {
+	if cfg.Token != apiToken {
 		t.Fatal("secrets were not stored")
 	}
 
@@ -202,23 +204,19 @@ func TestSecretsAreWriteOnlyAndMasked(t *testing.T) {
 	if cfg, _ := s.e.db.GetTelegram(context.Background()); cfg.Token != apiToken || cfg.ChatID != "@new_channel" {
 		t.Fatalf("omitting the token must keep it: %+v", cfg)
 	}
-	s.call("PUT", "/api/settings", m{"geo": m{"api_key": "another-valid-key-value"}})
-	if key, _, _ := s.e.db.GeoKey(context.Background()); key != "another-valid-key-value" {
-		t.Fatalf("key = %q", key)
-	}
-	r = s.call("PUT", "/api/settings", m{"telegram": m{"bot_token": ""}, "geo": m{"api_key": ""}})
+	r = s.call("PUT", "/api/settings", m{"telegram": m{"bot_token": ""}})
 	v = decode(t, r)
-	if sub(t, v, "telegram", "has_token") != false || sub(t, v, "telegram", "configured") != false || sub(t, v, "geo", "has_key") != false {
+	if sub(t, v, "telegram", "has_token") != false || sub(t, v, "telegram", "configured") != false {
 		t.Fatalf("%v", v)
 	}
 	for _, b := range s.e.bodies {
-		for _, secret := range []string{apiToken, apiGeo, "AAH_api", "another-valid-key"} {
+		for _, secret := range []string{apiToken, "AAH_api"} {
 			if strings.Contains(b, secret) {
 				t.Fatalf("a response contains a secret: %s", b)
 			}
 		}
 	}
-	if strings.Contains(s.e.logs.String(), apiToken) || strings.Contains(s.e.logs.String(), apiGeo) {
+	if strings.Contains(s.e.logs.String(), apiToken) {
 		t.Fatal("logs contain a secret")
 	}
 }
@@ -287,23 +285,28 @@ func TestSpeedProviderPauseAndResume(t *testing.T) {
 	}
 }
 
-func TestGeoStatusShowsBudgetAndPause(t *testing.T) {
+func TestGeoSourceCanBeChosenAndIsKept(t *testing.T) {
 	s := newSession(t)
-	ctx := context.Background()
-	now := s.e.clock.Now()
-	for i := 0; i < 3; i++ {
-		_, _ = s.e.db.GeoBeginAttempt(ctx, now, "fp", 1000)
+	for _, choice := range []string{"beta", "off", "auto", "alpha"} {
+		r := s.call("PUT", "/api/settings", m{"geo": m{"source": choice}})
+		if r.status != 200 || sub(t, decode(t, r), "geo", "source") != choice {
+			t.Fatalf("%s: %d %s", choice, r.status, r.body)
+		}
+		if got, _ := s.e.db.GetSettings(context.Background()); got.GeoSource != choice {
+			t.Fatalf("stored %q, want %q", got.GeoSource, choice)
+		}
 	}
-	_ = s.e.db.GeoSetPause(ctx, now, store.GateRateLimited, now.Add(10*time.Minute), "fp")
-	v := getSettings(t, s)
-	if sub(t, v, "geo", "used_today") != float64(3) || sub(t, v, "geo", "paused") != true || sub(t, v, "geo", "pause_reason") != "rate_limited" ||
-		sub(t, v, "geo", "retry_at") == nil {
-		t.Fatalf("%v", v["geo"])
+	// Other settings are untouched by a geo-only update, and vice versa.
+	s.call("PUT", "/api/settings", m{"monitoring": m{"down_threshold": 7}})
+	got, _ := s.e.db.GetSettings(context.Background())
+	if got.DownThreshold != 7 || got.GeoSource != "alpha" {
+		t.Fatalf("%+v", got)
 	}
-	// Usage belongs to a UTC day: the next day starts from zero.
-	s.e.clock.Advance(15 * time.Hour) // crosses UTC midnight; the 24 h session is still valid
-	if sub(t, getSettings(t, s), "geo", "used_today") != float64(0) {
-		t.Fatal("yesterday's usage is shown for today")
+	if r := s.call("PUT", "/api/settings", m{"geo": m{"source": "ipapi-is"}}); r.status != 422 {
+		t.Fatalf("unknown source accepted: %d", r.status)
+	}
+	if got, _ := s.e.db.GetSettings(context.Background()); got.GeoSource != "alpha" {
+		t.Fatalf("a rejected update changed the setting to %q", got.GeoSource)
 	}
 }
 

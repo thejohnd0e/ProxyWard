@@ -46,7 +46,7 @@ type Runner struct {
 	NewClient    ClientFactory
 	Scheduler    *Scheduler
 	// OnAvailability is called after an availability result was stored; may be nil.
-	OnAvailability func(domain.Availability)
+	OnAvailability func(domain.Proxy, domain.Availability)
 	Logger         *slog.Logger
 	// PollInterval is how often idle workers look for due jobs.
 	PollInterval time.Duration
@@ -243,7 +243,7 @@ func (r *Runner) runAvailability(parent, jobCtx context.Context, job domain.Job,
 	}
 	r.completed(wctx, job)
 	if r.OnAvailability != nil {
-		r.OnAvailability(res)
+		r.OnAvailability(p, res)
 	}
 	return domain.JobDone
 }

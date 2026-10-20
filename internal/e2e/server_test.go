@@ -25,7 +25,6 @@ import (
 
 const (
 	adminPassword = "e2e-password-123"
-	geoKey        = "e2e-geo-key"
 )
 
 type exitInfo struct {
@@ -59,6 +58,10 @@ func internet(t *testing.T, ca *testkit.CA, exit exitInfo) *testkit.Target {
 			testkit.IPifyHandler(exit.ip)(w, r)
 		case r.URL.Path == "/aws":
 			testkit.CheckIPHandler(exit.ip)(w, r)
+		case r.URL.Path == "/geo":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"ip":%q,"asn":%d,"organization_name":%q,"country":%q,"country_code":%q,"city":%q}`,
+				exit.ip, exit.asn, exit.org, exit.country, exit.countryCode, exit.city)
 		default:
 			speed.Serve(w, r)
 		}
@@ -107,28 +110,13 @@ func TestServe(t *testing.T) {
 
 	add("Dead proxy", "http", "127.0.0.1", testkit.FreePort(t), "", "", "")
 
-	// Direct services: geolocation and the Telegram Bot API.
+	// Direct service: the Telegram Bot API.
 	var mu sync.Mutex
 	sent := []string{}
 	direct := testkit.NewTarget(t, ca, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/geo" && r.Method == http.MethodPost:
-			var req struct{ Q, Key string }
-			_ = json.Unmarshal(body, &req)
-			if req.Key != geoKey {
-				w.WriteHeader(http.StatusForbidden)
-				return
-			}
-			for _, ex := range internets {
-				if ex.ip == req.Q {
-					fmt.Fprintf(w, `{"ip":%q,"asn":{"asn":%d,"org":%q},"location":{"country":%q,"country_code":%q,"city":%q}}`,
-						ex.ip, ex.asn, ex.org, ex.country, ex.countryCode, ex.city)
-					return
-				}
-			}
-			fmt.Fprintf(w, `{"ip":%q,"asn":null,"location":null}`, req.Q)
 		case botPath.MatchString(r.URL.Path) && r.Method == http.MethodPost:
 			var req struct {
 				Text string `json:"text"`
@@ -148,7 +136,7 @@ func TestServe(t *testing.T) {
 	mux.HandleFunc("GET /__e2e/fixtures", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"admin_password": adminPassword, "geo_key": geoKey, "proxies": fixtures,
+			"admin_password": adminPassword, "proxies": fixtures,
 			"telegram_token": "123456789:AAH_e2e-TOKEN-value-1234567890abcd", "telegram_chat": "-1001234567890",
 		})
 	})
@@ -172,7 +160,7 @@ func TestServe(t *testing.T) {
 			providers.NewAWS(testkit.TargetNamedURL("/aws")),
 		},
 		SpeedService: providers.NewCloudflareAt("https://" + testkit.TargetName),
-		GeoURL:       direct.URL + "/geo",
+		GeoSources:   []providers.GeoSource{{ID: "fixture", Name: "Fixture", Site: "https://example.invalid/", URL: testkit.TargetNamedURL("/geo")}},
 		TelegramURL:  direct.URL,
 		RootCAs:      ca.Pool,
 	}

@@ -162,7 +162,7 @@ func newRig(t *testing.T, proxies int, mod func(*domain.Settings), checks *fakeC
 		Poll:      5 * time.Millisecond, TickEvery: 10 * time.Millisecond,
 	})
 	r := &rig{env: e, svc: svc, checks: checks, occ: occ, hooked: make(chan domain.Availability, 256)}
-	svc.Runner.OnAvailability = func(a domain.Availability) { r.hooked <- a }
+	svc.Runner.OnAvailability = func(_ domain.Proxy, a domain.Availability) { r.hooked <- a }
 	return r
 }
 

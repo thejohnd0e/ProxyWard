@@ -1,14 +1,12 @@
 package geo
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"log/slog"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,38 +14,57 @@ import (
 
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 	"github.com/thejohnd0e/ProxyWard/internal/providers"
-	"github.com/thejohnd0e/ProxyWard/internal/secrets"
 	"github.com/thejohnd0e/ProxyWard/internal/store"
 	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
-const secretKey = "SECRET-GEO-KEY-123"
+var exit = netip.MustParseAddr("203.0.113.7")
 
-type fakeProvider struct {
-	calls atomic.Int32
-	mu    sync.Mutex
-	fn    func(ip netip.Addr) (domain.Geo, error)
-	gate  chan struct{} // when set, lookups wait for it to be closed
+// fakeSource is a geolocation service on a local server. It answers about the
+// address in ip, like the real services answer about their caller.
+type fakeSource struct {
+	src    providers.GeoSource
+	calls  atomic.Int32
+	mu     sync.Mutex
+	status int
+	header map[string]string
+	ip     string
+	gate   chan struct{}
 }
 
-func (f *fakeProvider) LookupGeo(ctx context.Context, ip netip.Addr) (domain.Geo, error) {
-	f.calls.Add(1)
-	if f.gate != nil {
-		<-f.gate
-	}
+func newFakeSource(t *testing.T, id string) *fakeSource {
+	t.Helper()
+	f := &fakeSource{status: 200, ip: exit.String()}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.calls.Add(1)
+		if f.gate != nil {
+			<-f.gate
+		}
+		f.mu.Lock()
+		status, hdr, ip := f.status, f.header, f.ip
+		f.mu.Unlock()
+		for k, v := range hdr {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(status)
+		if status == 200 {
+			fmt.Fprintf(w, `{"ip":%q,"country_code":"DE","country":"Germany","city":"Berlin","asn":64500,"organization_name":"%s Example"}`, ip, id)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	f.src = providers.GeoSource{ID: id, Name: id, URL: srv.URL}
+	return f
+}
+
+func (f *fakeSource) fail(status int, hdr map[string]string) {
 	f.mu.Lock()
-	fn := f.fn
+	f.status, f.header = status, hdr
 	f.mu.Unlock()
-	if fn != nil {
-		return fn(ip)
-	}
-	asn := uint32(64500)
-	return domain.Geo{IP: ip.String(), CountryCode: "DE", Country: "Germany", City: "Berlin", Organization: "Example GmbH", ASN: &asn}, nil
 }
 
-func (f *fakeProvider) set(fn func(netip.Addr) (domain.Geo, error)) {
+func (f *fakeSource) answerAbout(ip string) {
 	f.mu.Lock()
-	f.fn = fn
+	f.ip = ip
 	f.mu.Unlock()
 }
 
@@ -55,386 +72,253 @@ type rig struct {
 	t     *testing.T
 	db    *store.Store
 	clock *testkit.Clock
-	prov  *fakeProvider
+	a, b  *fakeSource
 	svc   *Service
-	logs  *bytes.Buffer
-	path  string
 }
 
-func newRig(t *testing.T, withKey bool) *rig {
+func newRig(t *testing.T) *rig {
 	t.Helper()
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "state.db")
-	r := &rig{t: t, path: path, clock: testkit.NewClock(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)),
-		prov: &fakeProvider{}, logs: &bytes.Buffer{}}
-	r.open()
-	if withKey {
-		if err := r.db.SetGeoKey(ctx, secretKey, r.clock.Now()); err != nil {
-			t.Fatal(err)
-		}
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := &rig{t: t, db: db, clock: testkit.NewClock(time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)),
+		a: newFakeSource(t, "alpha"), b: newFakeSource(t, "beta")}
+	r.svc = NewService(db, []providers.GeoSource{r.a.src, r.b.src}, r.clock)
 	return r
 }
 
-// open (re)opens the database and builds a new service, like a restart.
-func (r *rig) open() {
-	ctx := context.Background()
-	if r.db != nil {
-		r.db.Close()
-	}
-	db, err := store.Open(ctx, r.path)
-	if err != nil {
+func (r *rig) choose(source string) {
+	r.t.Helper()
+	s := domain.DefaultSettings()
+	s.GeoSource = source
+	if err := r.db.PutSettings(context.Background(), s, r.clock.Now()); err != nil {
 		r.t.Fatal(err)
 	}
-	if err := db.Migrate(ctx); err != nil {
-		r.t.Fatal(err)
-	}
-	cipher, err := secrets.Load(filepath.Dir(r.path))
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	db.UseSecrets(cipher)
-	r.t.Cleanup(func() { db.Close() })
-	r.db = db
-	logger := slog.New(slog.NewTextHandler(r.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	r.svc = NewService(db, r.prov, r.clock, WithLogger(logger))
 }
 
-func ip(s string) netip.Addr { return netip.MustParseAddr(s) }
-
-func (r *rig) get(s string) GeoView {
+func (r *rig) get(ip netip.Addr) GeoView {
 	r.t.Helper()
-	v, err := r.svc.Get(context.Background(), ip(s))
+	v, err := r.svc.Get(context.Background(), ip, http.DefaultClient)
 	if err != nil {
-		r.t.Fatalf("Get(%s): %v", s, err)
+		r.t.Fatal(err)
 	}
 	return v
 }
 
-func TestFreshLookupIsCachedFor24Hours(t *testing.T) {
-	r := newRig(t, true)
-	v := r.get("203.0.113.5")
-	if v.Status != StatusFresh || v.Stale || !v.HasGeo || v.Geo.Country != "Germany" || v.Geo.ASN == nil || *v.Geo.ASN != 64500 ||
-		!v.Geo.FetchedAt.Equal(r.clock.Now()) || v.ErrorCode != "" {
+func TestLookupFillsAndCachesTheView(t *testing.T) {
+	r := newRig(t)
+	v := r.get(exit)
+	if !v.HasGeo || v.Status != StatusFresh || v.Geo.CountryCode != "DE" || v.Geo.City != "Berlin" || v.Geo.ASN == nil || *v.Geo.ASN != 64500 {
 		t.Fatalf("%+v", v)
 	}
-	r.clock.Advance(23*time.Hour + 59*time.Minute)
-	if v := r.get("203.0.113.5"); v.Status != StatusFresh || r.prov.calls.Load() != 1 {
-		t.Fatalf("cache not used within 24h: %+v calls=%d", v, r.prov.calls.Load())
+	if v.Geo.IP != exit.String() || !v.Geo.FetchedAt.Equal(r.clock.Now()) {
+		t.Fatalf("%+v", v.Geo)
 	}
-	r.clock.Advance(2 * time.Minute)
-	if v := r.get("203.0.113.5"); v.Status != StatusFresh || r.prov.calls.Load() != 2 || !v.Geo.FetchedAt.Equal(r.clock.Now()) {
-		t.Fatalf("expired entry not refreshed: %+v calls=%d", v, r.prov.calls.Load())
+	r.get(exit)
+	if r.a.calls.Load() != 1 {
+		t.Fatalf("the second call must come from the cache, got %d lookups", r.a.calls.Load())
 	}
-}
-
-func TestSharedExitIPIsLookedUpOnce(t *testing.T) {
-	r := newRig(t, true)
-	for i := 0; i < 5; i++ { // five proxies behind one exit address
-		r.get("203.0.113.9")
-	}
-	if n := r.prov.calls.Load(); n != 1 {
-		t.Fatalf("lookups = %d", n)
-	}
-	// IPv4-mapped spelling is the same address.
-	if v, err := r.svc.Get(context.Background(), ip("::ffff:203.0.113.9")); err != nil || v.Status != StatusFresh || r.prov.calls.Load() != 1 {
-		t.Fatalf("mapped address: %+v %v calls=%d", v, err, r.prov.calls.Load())
+	peek, err := r.svc.Peek(context.Background(), exit)
+	if err != nil || !peek.HasGeo || peek.Status != StatusFresh {
+		t.Fatalf("%+v %v", peek, err)
 	}
 }
 
-func TestConcurrentLookupsAreCoalesced(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.gate = make(chan struct{})
+func TestAutoFallsThroughToTheNextSource(t *testing.T) {
+	r := newRig(t)
+	r.a.fail(503, nil)
+	v := r.get(exit)
+	if v.Status != StatusFresh || v.Geo.Organization != "beta Example" {
+		t.Fatalf("%+v", v)
+	}
+	if r.a.calls.Load() != 1 || r.b.calls.Load() != 1 {
+		t.Fatalf("calls a=%d b=%d", r.a.calls.Load(), r.b.calls.Load())
+	}
+}
+
+func TestAChosenSourceIsTheOnlyOneAsked(t *testing.T) {
+	r := newRig(t)
+	r.choose("beta")
+	if v := r.get(exit); v.Geo.Organization != "beta Example" {
+		t.Fatalf("%+v", v)
+	}
+	if r.a.calls.Load() != 0 {
+		t.Fatal("the source that was not chosen was asked")
+	}
+	r2 := newRig(t)
+	r2.choose("beta")
+	r2.b.fail(503, nil)
+	if v := r2.get(exit); v.Status != StatusUnavailable || r2.a.calls.Load() != 0 {
+		t.Fatalf("a chosen source must not fall back silently: %+v a=%d", v, r2.a.calls.Load())
+	}
+}
+
+func TestAnUnknownChoiceBehavesLikeAuto(t *testing.T) {
+	r := newRig(t)
+	r.choose("removed-source")
+	if v := r.get(exit); v.Status != StatusFresh || r.a.calls.Load() != 1 {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestOffMakesNoRequestAndKeepsOldData(t *testing.T) {
+	r := newRig(t)
+	r.choose(domain.GeoSourceOff)
+	v := r.get(exit)
+	if v.Status != StatusOff || v.HasGeo || v.ErrorCode != CodeOff || r.a.calls.Load() != 0 {
+		t.Fatalf("%+v calls=%d", v, r.a.calls.Load())
+	}
+	r.choose(domain.GeoSourceAuto)
+	r.get(exit)
+	r.clock.Advance(25 * time.Hour)
+	r.choose(domain.GeoSourceOff)
+	v = r.get(exit)
+	if !v.HasGeo || !v.Stale || v.ErrorCode != CodeOff || r.a.calls.Load() != 1 {
+		t.Fatalf("stale data must stay visible while lookups are off: %+v", v)
+	}
+}
+
+func TestEveryFailureBacksOffInsteadOfRetryingOnEachCheck(t *testing.T) {
+	r := newRig(t)
+	r.a.fail(503, nil)
+	r.b.fail(429, map[string]string{"Retry-After": "600"})
+	v := r.get(exit)
+	if v.Status != StatusUnavailable || v.ErrorCode != CodeRateLimited || v.HasGeo {
+		t.Fatalf("%+v", v)
+	}
+	if want := r.clock.Now().Add(10 * time.Minute); !v.RetryAt.Equal(want) {
+		t.Fatalf("retry at %v, want the Retry-After of %v", v.RetryAt, want)
+	}
+	asked := r.a.calls.Load() + r.b.calls.Load()
+	r.clock.Advance(5 * time.Minute)
+	r.get(exit)
+	if r.a.calls.Load()+r.b.calls.Load() != asked {
+		t.Fatal("a source was asked again before the back-off ended")
+	}
+	r.clock.Advance(6 * time.Minute)
+	r.a.fail(200, nil)
+	if v := r.get(exit); v.Status != StatusFresh {
+		t.Fatalf("recovery after the back-off: %+v", v)
+	}
+}
+
+func TestBackoffGrowsWithRepeatedFailures(t *testing.T) {
+	r := newRig(t)
+	r.a.fail(503, nil)
+	r.b.fail(503, nil)
+	first := r.get(exit).RetryAt.Sub(r.clock.Now())
+	r.clock.Advance(first + time.Second)
+	second := r.get(exit).RetryAt.Sub(r.clock.Now())
+	if second <= first {
+		t.Fatalf("back-off %v then %v", first, second)
+	}
+}
+
+func TestStaleDataSurvivesAFailedRefresh(t *testing.T) {
+	r := newRig(t)
+	r.get(exit)
+	r.clock.Advance(25 * time.Hour)
+	r.a.fail(503, nil)
+	r.b.fail(503, nil)
+	v := r.get(exit)
+	if !v.HasGeo || !v.Stale || v.Status != StatusStale || v.ErrorCode != CodeUnavailable {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestAReplyAboutAnotherAddressIsNotStored(t *testing.T) {
+	r := newRig(t)
+	r.a.answerAbout("198.51.100.1")
+	r.b.answerAbout("198.51.100.1")
+	v := r.get(exit)
+	if v.HasGeo || v.ErrorCode != CodeInvalid {
+		t.Fatalf("%+v", v)
+	}
+	if _, err := r.db.GetGeoCache(context.Background(), "198.51.100.1"); err == nil {
+		t.Fatal("a record for a different address was cached")
+	}
+	if _, err := r.db.GetGeoCache(context.Background(), exit.String()); err == nil {
+		t.Fatal("a record was cached for the wrong address")
+	}
+}
+
+func TestConcurrentCallersShareOneLookup(t *testing.T) {
+	r := newRig(t)
+	r.a.gate = make(chan struct{})
 	var wg sync.WaitGroup
 	views := make([]GeoView, 20)
 	for i := range views {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			v, err := r.svc.Get(context.Background(), ip("203.0.113.20"))
+			v, err := r.svc.Get(context.Background(), exit, http.DefaultClient)
 			if err != nil {
 				t.Error(err)
 			}
 			views[i] = v
-		}()
+		}(i)
 	}
-	for r.prov.calls.Load() == 0 {
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(50 * time.Millisecond) // let the other callers pile up behind the leader
-	close(r.prov.gate)
+	time.Sleep(100 * time.Millisecond)
+	close(r.a.gate)
 	wg.Wait()
-	if n := r.prov.calls.Load(); n != 1 {
-		t.Fatalf("lookups = %d, want 1", n)
+	if r.a.calls.Load() != 1 {
+		t.Fatalf("lookups = %d, want 1", r.a.calls.Load())
 	}
 	for i, v := range views {
-		if v.Status != StatusFresh || v.Geo.City != "Berlin" {
-			t.Fatalf("caller %d got %+v", i, v)
+		if v.Status != StatusFresh {
+			t.Fatalf("caller %d: %+v", i, v)
 		}
 	}
-	st, _ := r.db.GeoState(context.Background())
-	if st.Used != 1 {
-		t.Fatalf("budget used = %d, want 1", st.Used)
-	}
 }
 
-func TestWaiterCanGiveUp(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.gate = make(chan struct{})
-	go r.svc.Get(context.Background(), ip("203.0.113.30"))
-	for r.prov.calls.Load() == 0 {
-		time.Sleep(time.Millisecond)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	if _, err := r.svc.Get(ctx, ip("203.0.113.30")); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v", err)
-	}
-	close(r.prov.gate)
-}
-
-func TestStaleDataIsRetainedWhenRefreshFails(t *testing.T) {
-	r := newRig(t, true)
-	r.get("203.0.113.40")
-	first := r.clock.Now()
-	r.clock.Advance(30 * time.Hour)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) {
-		return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: providers.KindUnavailable, Status: 503}
-	})
-	v := r.get("203.0.113.40")
-	if v.Status != StatusStale || !v.Stale || !v.HasGeo || v.Geo.City != "Berlin" || !v.Geo.FetchedAt.Equal(first) ||
-		v.ErrorCode != "provider_unavailable" {
+func TestCancelingTheFirstCallerDoesNotFailTheOthers(t *testing.T) {
+	r := newRig(t)
+	r.a.gate = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() { _, err := r.svc.Get(ctx, exit, http.DefaultClient); first <- err }()
+	time.Sleep(50 * time.Millisecond)
+	second := make(chan GeoView, 1)
+	go func() { v, _ := r.svc.Get(context.Background(), exit, http.DefaultClient); second <- v }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	close(r.a.gate)
+	<-first
+	if v := <-second; v.Status != StatusFresh {
 		t.Fatalf("%+v", v)
-	}
-	if got, _ := r.db.GetGeoCache(context.Background(), "203.0.113.40"); !got.FetchedAt.Equal(first) || got.City != "Berlin" {
-		t.Fatalf("failed refresh overwrote the cache: %+v", got)
-	}
-}
-
-func TestNoKeyMeansNotConfiguredAndNoRequests(t *testing.T) {
-	r := newRig(t, false)
-	v := r.get("203.0.113.50")
-	if v.Status != StatusNotConfigured || v.ErrorCode != "not_configured" || v.HasGeo || r.prov.calls.Load() != 0 {
-		t.Fatalf("%+v calls=%d", v, r.prov.calls.Load())
-	}
-	if st, _ := r.db.GeoState(context.Background()); st.Used != 0 {
-		t.Fatalf("not-configured lookups consumed budget: %+v", st)
-	}
-	// Fresh cached data stays usable without a key; expired data is shown as stale.
-	if err := r.db.PutGeoCache(context.Background(), domain.Geo{IP: "203.0.113.51", Country: "France", FetchedAt: r.clock.Now().Add(-time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if v := r.get("203.0.113.51"); v.Status != StatusFresh || v.Geo.Country != "France" {
-		t.Fatalf("%+v", v)
-	}
-	if err := r.db.PutGeoCache(context.Background(), domain.Geo{IP: "203.0.113.52", Country: "Spain", FetchedAt: r.clock.Now().Add(-48 * time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if v := r.get("203.0.113.52"); v.Status != StatusStale || v.ErrorCode != "not_configured" || v.Geo.Country != "Spain" {
-		t.Fatalf("%+v", v)
-	}
-	if r.prov.calls.Load() != 0 {
-		t.Fatal("provider called without a key")
 	}
 }
 
 func TestPrivateAddressesAreNeverLookedUp(t *testing.T) {
-	r := newRig(t, true)
-	for _, s := range []string{"10.0.0.1", "192.168.1.1", "127.0.0.1", "::1", "100.64.0.1", "0.0.0.0"} {
-		if _, err := r.svc.Get(context.Background(), ip(s)); !errors.Is(err, ErrNotPublic) {
-			t.Errorf("%s: err = %v", s, err)
+	r := newRig(t)
+	for _, ip := range []string{"10.0.0.1", "192.168.1.1", "127.0.0.1", "169.254.1.1", "::1", "fe80::1"} {
+		if _, err := r.svc.Get(context.Background(), netip.MustParseAddr(ip), http.DefaultClient); err == nil {
+			t.Errorf("%s was accepted", ip)
 		}
 	}
-	if _, err := r.svc.Get(context.Background(), netip.Addr{}); !errors.Is(err, ErrNotPublic) {
-		t.Errorf("zero address: %v", err)
-	}
-	if r.prov.calls.Load() != 0 {
-		t.Fatal("provider called for a non-public address")
+	if r.a.calls.Load() != 0 {
+		t.Fatal("a private address reached a source")
 	}
 }
 
-func TestDailyBudgetIsPersistentAndResetsAtUTCMidnight(t *testing.T) {
-	r := newRig(t, true)
-	r.svc.DailyLimit = 3
-	for i := 1; i <= 3; i++ {
-		if v := r.get("203.0.113." + strconv.Itoa(60+i)); v.Status != StatusFresh {
-			t.Fatalf("lookup %d: %+v", i, v)
-		}
-	}
-	v := r.get("203.0.113.70")
-	if v.Status != StatusQuotaExhausted || v.ErrorCode != "quota_exhausted" || v.HasGeo || v.RetryAt.IsZero() || r.prov.calls.Load() != 3 {
-		t.Fatalf("%+v calls=%d", v, r.prov.calls.Load())
-	}
-	r.open() // restart
-	r.svc.DailyLimit = 3
-	if v := r.get("203.0.113.71"); v.Status != StatusQuotaExhausted {
-		t.Fatalf("budget forgotten after restart: %+v", v)
-	}
-	// Cached entries keep working while the budget is exhausted.
-	if v := r.get("203.0.113.61"); v.Status != StatusFresh {
-		t.Fatalf("cache must not need budget: %+v", v)
-	}
-	r.clock.Advance(15 * time.Hour) // 2026-10-20 09:00 + 15h = 2026-10-21 00:00 UTC
-	if v := r.get("203.0.113.72"); v.Status != StatusFresh {
-		t.Fatalf("budget not reset at UTC midnight: %+v", v)
+func TestPeekNeverUsesTheNetwork(t *testing.T) {
+	r := newRig(t)
+	v, err := r.svc.Peek(context.Background(), exit)
+	if err != nil || v.Status != StatusUnknown || v.HasGeo || r.a.calls.Load() != 0 {
+		t.Fatalf("%+v %v", v, err)
 	}
 }
 
-func TestDefaultDailyLimitIs1000(t *testing.T) {
-	r := newRig(t, true)
-	if r.svc.DailyLimit != 1000 || r.svc.TTL != 24*time.Hour {
-		t.Fatalf("defaults: limit=%d ttl=%v", r.svc.DailyLimit, r.svc.TTL)
-	}
-}
-
-func TestRateLimitPausesUntilRetryAfter(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) {
-		return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: providers.KindRateLimited, Status: 429, RetryAfter: 5 * time.Minute}
-	})
-	v := r.get("203.0.113.80")
-	if v.Status != StatusPaused || v.ErrorCode != "provider_rate_limited" || !v.RetryAt.Equal(r.clock.Now().Add(5*time.Minute)) {
-		t.Fatalf("%+v", v)
-	}
-	calls := r.prov.calls.Load()
-	r.clock.Advance(4 * time.Minute)
-	if v := r.get("203.0.113.81"); v.Status != StatusPaused || r.prov.calls.Load() != calls {
-		t.Fatalf("pause ignored: %+v", v)
-	}
-	r.prov.set(nil)
-	r.clock.Advance(2 * time.Minute)
-	if v := r.get("203.0.113.82"); v.Status != StatusFresh {
-		t.Fatalf("pause did not end: %+v", v)
-	}
-	if st, _ := r.db.GeoState(context.Background()); st.PauseReason != "" || st.BackoffAttempt != 0 {
-		t.Fatalf("success must clear the pause: %+v", st)
-	}
-}
-
-func TestRateLimitWithoutRetryAfterBacksOffExponentially(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) {
-		return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: providers.KindRateLimited, Status: 429}
-	})
-	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute}
-	for i, d := range want {
-		v := r.get("203.0.113.9" + strconv.Itoa(i))
-		if v.Status != StatusPaused || !v.RetryAt.Equal(r.clock.Now().Add(d)) {
-			t.Fatalf("attempt %d: %+v, want pause of %v", i+1, v, d)
-		}
-		r.clock.Advance(d)
-	}
-}
-
-func TestForbiddenPausesUntilTheKeyChanges(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) {
-		return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: providers.KindForbidden, Status: 403}
-	})
-	if v := r.get("203.0.113.100"); v.Status != StatusPaused || v.ErrorCode != "provider_forbidden" {
-		t.Fatalf("%+v", v)
-	}
-	calls := r.prov.calls.Load()
-	usedBefore, _ := r.db.GeoState(context.Background())
-	r.clock.Advance(13 * time.Hour) // still the same UTC day, so usage stays comparable
-	if v := r.get("203.0.113.101"); v.Status != StatusPaused || r.prov.calls.Load() != calls {
-		t.Fatalf("a forbidden pause ended with time: %+v", v)
-	}
-	r.open() // survives restart
-	if v := r.get("203.0.113.102"); v.Status != StatusPaused {
-		t.Fatalf("pause lost on restart: %+v", v)
-	}
-	r.prov.set(nil)
-	if err := r.db.SetGeoKey(context.Background(), "A-NEW-KEY", r.clock.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if v := r.get("203.0.113.103"); v.Status != StatusFresh {
-		t.Fatalf("pause not reset by a changed key: %+v", v)
-	}
-	st, _ := r.db.GeoState(context.Background())
-	if st.Used != usedBefore.Used+1 {
-		t.Fatalf("usage must survive a key change (before %d, after %d)", usedBefore.Used, st.Used)
-	}
-}
-
-func TestOtherFailuresBackOffToo(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) { return domain.Geo{}, errors.New("connection reset") })
-	v := r.get("203.0.113.110")
-	if v.Status != StatusUnavailable || v.ErrorCode != "provider_unavailable" || !v.RetryAt.Equal(r.clock.Now().Add(time.Minute)) || v.HasGeo {
-		t.Fatalf("%+v", v)
-	}
-	calls := r.prov.calls.Load()
-	r.get("203.0.113.111")
-	if r.prov.calls.Load() != calls {
-		t.Fatal("a failing provider is being hammered during its backoff")
-	}
-}
-
-func TestInvalidResponsesAreReportedWithoutCaching(t *testing.T) {
-	r := newRig(t, true)
-	r.prov.set(func(netip.Addr) (domain.Geo, error) {
-		return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: providers.KindInvalidResponse, Status: 200}
-	})
-	if v := r.get("203.0.113.120"); v.Status != StatusUnavailable || v.ErrorCode != "invalid_response" {
-		t.Fatalf("%+v", v)
-	}
-	if _, err := r.db.GetGeoCache(context.Background(), "203.0.113.120"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("invalid data was cached: %v", err)
-	}
-}
-
-func TestPeekNeverCallsTheProvider(t *testing.T) {
-	r := newRig(t, true)
-	if v, err := r.svc.Peek(context.Background(), ip("203.0.113.130")); err != nil || v.HasGeo || v.Status != StatusUnknown {
-		t.Fatalf("miss: %+v %v", v, err)
-	}
-	r.get("203.0.113.130")
-	r.clock.Advance(25 * time.Hour)
-	v, err := r.svc.Peek(context.Background(), ip("203.0.113.130"))
-	if err != nil || !v.HasGeo || !v.Stale || v.Status != StatusStale {
-		t.Fatalf("expired entry: %+v %v", v, err)
-	}
-	if r.prov.calls.Load() != 1 {
-		t.Fatalf("Peek called the provider: %d", r.prov.calls.Load())
-	}
-}
-
-func TestKeyNeverAppearsInLogsOrViews(t *testing.T) {
-	r := newRig(t, true)
-	for _, kind := range []providers.Kind{providers.KindRateLimited, providers.KindForbidden, providers.KindUnavailable} {
-		kind := kind
-		r.prov.set(func(netip.Addr) (domain.Geo, error) {
-			return domain.Geo{}, &providers.Error{Provider: "ipapi", Kind: kind, Status: 500, RetryAfter: time.Minute}
-		})
-		v := r.get("203.0.113.14" + strconv.Itoa(int(kind)))
-		if strings.Contains(v.ErrorCode+v.Status, secretKey) {
-			t.Fatal("view leaks the key")
-		}
-		r.clock.Advance(2 * time.Hour)
-	}
-	if !strings.Contains(r.logs.String(), "geolocation") {
-		t.Fatal("expected pause log entries")
-	}
-	if strings.Contains(r.logs.String(), secretKey) {
-		t.Fatalf("logs leak the key: %s", r.logs.String())
-	}
-}
-
-func TestGeoFailuresNeverTouchAvailability(t *testing.T) {
-	ctx := context.Background()
-	r := newRig(t, true)
-	id, err := r.db.InsertProxy(ctx, domain.Proxy{Name: "p", Protocol: domain.ProtocolHTTP, Host: "h", Port: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.db.AddAvailability(ctx, domain.Availability{ProxyID: id, CheckedAt: r.clock.Now(), State: domain.StateUp, ExitIP: "203.0.113.150"}); err != nil {
-		t.Fatal(err)
-	}
-	r.prov.set(func(netip.Addr) (domain.Geo, error) { return domain.Geo{}, errors.New("geo down") })
-	r.get("203.0.113.150")
-	latest, err := r.db.LatestAvailability(ctx, id)
-	if err != nil || latest.State != domain.StateUp || latest.Failure != nil {
-		t.Fatalf("geo failure changed availability: %+v %v", latest, err)
+func TestSourcesAreListedInTryOrder(t *testing.T) {
+	r := newRig(t)
+	got := r.svc.Sources()
+	if len(got) != 2 || got[0].ID != "alpha" || got[1].ID != "beta" {
+		t.Fatalf("%v", got)
 	}
 }

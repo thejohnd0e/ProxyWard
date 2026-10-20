@@ -12,15 +12,18 @@ import (
 	"github.com/thejohnd0e/ProxyWard/internal/apierr"
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 	"github.com/thejohnd0e/ProxyWard/internal/geo"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
 	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // uptimeWindow is the period the uptime figure covers.
 const uptimeWindow = 24 * time.Hour
 
-// GeoPeeker returns cached geolocation without any network access.
+// GeoPeeker returns cached geolocation without any network access and lists
+// the available sources.
 type GeoPeeker interface {
 	Peek(ctx context.Context, ip netip.Addr) (geo.GeoView, error)
+	Sources() []providers.GeoSource
 }
 
 // WithGeo enables geolocation data in proxy views.

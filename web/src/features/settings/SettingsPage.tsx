@@ -251,17 +251,17 @@ function Num({ id, label, hint, value, onChange }: { id: string; label: string; 
 function GeoCard({ settings, onSaved }: { settings: SettingsView; onSaved: (s: SettingsView) => void }) {
   const id = useId();
   const g = settings.geo;
-  const [key, setKey] = useState('');
+  const [source, setSource] = useState(g.source);
   const [msg, setMsg] = useState<Message>(null);
   const [busy, setBusy] = useState(false);
 
-  const send = async (value: string, done: string) => {
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
     setBusy(true);
     setMsg(null);
     try {
-      onSaved(await putSettings({ geo: { api_key: value } }));
-      setKey('');
-      setMsg({ kind: 'ok', text: done });
+      onSaved(await putSettings({ geo: { source } }));
+      setMsg({ kind: 'ok', text: 'Location source saved.' });
     } catch (err) {
       setMsg({ kind: 'error', text: errorText(err) });
     } finally {
@@ -272,49 +272,42 @@ function GeoCard({ settings, onSaved }: { settings: SettingsView; onSaved: (s: S
   return (
     <Card title="Location lookup">
       <p>
-        {g.has_key ? 'An ipapi.is key is saved.' : 'Not configured.'} Without a key, countries and networks are not looked up.
+        Country, city and network of each exit address come from a public service. ProxyWard asks the service through the proxy
+        itself, so the service sees the proxy&apos;s address and never yours. No account or key is needed.
       </p>
-      <p className="muted">
-        The key comes from ipapi.is: create a free account at{' '}
-        <a href="https://ipapi.is/" target="_blank" rel="noopener noreferrer">
-          ipapi.is
-        </a>{' '}
-        and copy the API key from your account. The free plan allows 1000 lookups a day; see the{' '}
-        <a href="https://ipapi.is/developers.html" target="_blank" rel="noopener noreferrer">
-          documentation
-        </a>
-        . Sign-up is refused from a VPN, proxy or corporate network, so register from your normal home connection (GitHub and Google sign-in also work).
-      </p>
-      <p className="muted">
-        Used today: {g.used_today} of {g.daily_limit} lookups.
-        {g.paused ? ` Lookups are paused (${g.pause_reason === 'forbidden' ? 'the key was refused' : g.pause_reason === 'rate_limited' ? 'rate limited' : 'temporarily unavailable'}${g.retry_at ? `, until ${formatDateTime(g.retry_at)}` : ''}).` : ''}
-      </p>
-      <form
-        className="form"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (key.trim() === '') {
-            setMsg({ kind: 'error', text: 'Paste an API key first.' });
-            return;
-          }
-          void send(key.trim(), 'API key saved.');
-        }}
-      >
+      <form className="form" noValidate onSubmit={(e) => void save(e)}>
         <div className="field">
-          <label htmlFor={`${id}-key`}>API key</label>
-          <input id={`${id}-key`} type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder={g.has_key ? 'Paste a new key to replace the saved one' : 'Paste your ipapi.is key'} />
+          <label htmlFor={`${id}-source`}>Source</label>
+          <select id={`${id}-source`} value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="auto">Automatic: try the sources in turn</option>
+            {g.sources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+            <option value="off">Off: do not look up locations</option>
+          </select>
+          <p className="hint">
+            Automatic uses the next source when one fails. A single source is the only one asked. Results are kept for 24 hours.
+          </p>
         </div>
+        <p className="muted">
+          Sources:{' '}
+          {g.sources.map((s, i) => (
+            <span key={s.id}>
+              {i > 0 ? ', ' : ''}
+              <a href={s.site} target="_blank" rel="noopener noreferrer">
+                {s.name}
+              </a>
+            </span>
+          ))}
+          .
+        </p>
         <Msg message={msg} />
         <div className="form__actions">
           <button type="submit" className="button button--primary" disabled={busy}>
-            Save API key
+            Save location source
           </button>
-          {g.has_key ? (
-            <button type="button" className="button button--danger" disabled={busy} onClick={() => void send('', 'API key removed.')}>
-              Remove API key
-            </button>
-          ) : null}
         </div>
       </form>
     </Card>

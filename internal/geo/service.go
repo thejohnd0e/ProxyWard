@@ -1,11 +1,15 @@
 // Package geo provides cached geolocation and ASN data for observed exit IPs.
-// Geo problems are reported through the view and never affect availability.
+// The data comes from public sources that describe the caller, asked through
+// the proxy itself, so the machine running ProxyWard is never revealed and no
+// account or key is needed. Geo problems are reported through the view and
+// never affect availability.
 package geo
 
 import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"sync"
 	"time"
@@ -17,32 +21,31 @@ import (
 
 // Status describes how trustworthy a GeoView is.
 const (
-	StatusFresh          = "fresh"           // cached within the TTL, or just fetched
-	StatusStale          = "stale"           // older than the TTL; the refresh failed or is not allowed
-	StatusNotConfigured  = "not_configured"  // no API key, no data
-	StatusPaused         = "paused"          // provider rate limit or rejected key, no data
-	StatusQuotaExhausted = "quota_exhausted" // local daily budget used up, no data
-	StatusUnavailable    = "unavailable"     // lookup failed, no data
-	StatusUnknown        = "unknown"         // Peek found nothing
+	StatusFresh       = "fresh"       // cached within the TTL, or just fetched
+	StatusStale       = "stale"       // older than the TTL; the refresh failed or is not allowed
+	StatusOff         = "off"         // lookups are switched off in the settings
+	StatusUnavailable = "unavailable" // every lookup failed, no data
+	StatusUnknown     = "unknown"     // Peek found nothing
 )
 
 // Error codes shown with a view.
 const (
-	CodeNotConfigured = "not_configured"
-	CodeQuota         = "quota_exhausted"
-	CodeRateLimited   = "provider_rate_limited"
-	CodeForbidden     = "provider_forbidden"
-	CodeUnavailable   = "provider_unavailable"
-	CodeInvalid       = "invalid_response"
+	CodeOff         = "off"
+	CodeRateLimited = "provider_rate_limited"
+	CodeForbidden   = "provider_forbidden"
+	CodeUnavailable = "provider_unavailable"
+	CodeInvalid     = "invalid_response"
 )
 
-// Defaults from the specification.
+// DefaultTTL is how long a cached record counts as fresh.
+const DefaultTTL = 24 * time.Hour
+
 const (
-	DefaultTTL        = 24 * time.Hour
-	DefaultDailyLimit = 1000
+	sourceTimeout = 6 * time.Second
+	maxTracked    = 1024
 )
 
-// ErrNotPublic is returned for addresses that must not be sent to the provider.
+// ErrNotPublic is returned for addresses that must not be looked up.
 var ErrNotPublic = errors.New("address is not a public IP")
 
 // GeoView is what callers show: data (possibly stale) plus its state.
@@ -55,35 +58,25 @@ type GeoView struct {
 	RetryAt   time.Time // when a refresh may be attempted again, if known
 }
 
-// Provider fetches geolocation for one address.
-type Provider interface {
-	LookupGeo(ctx context.Context, ip netip.Addr) (domain.Geo, error)
-}
-
 // Store is the persistence the service needs (implemented by *store.Store).
 type Store interface {
 	GetGeoCache(ctx context.Context, ip string) (domain.Geo, error)
 	PutGeoCache(ctx context.Context, g domain.Geo) error
-	GeoKey(ctx context.Context) (string, bool, error)
-	GeoKeyFingerprint(key string) string
-	GeoState(ctx context.Context) (store.GeoState, error)
-	GeoBeginAttempt(ctx context.Context, now time.Time, keyFP string, limit int) (store.GeoGate, error)
-	GeoSetPause(ctx context.Context, now time.Time, reason string, until time.Time, keyFP string) error
-	GeoClearPause(ctx context.Context) error
+	GetSettings(ctx context.Context) (domain.Settings, error)
 }
 
 // Service looks up and caches geolocation data.
 type Service struct {
-	TTL        time.Duration
-	DailyLimit int
+	TTL time.Duration
 
-	store    Store
-	provider Provider
-	clock    domain.Clock
-	logger   *slog.Logger
+	store   Store
+	sources []providers.GeoSource
+	clock   domain.Clock
+	logger  *slog.Logger
 
 	mu       sync.Mutex
 	inflight map[netip.Addr]*call
+	failures map[netip.Addr]failure
 }
 
 type call struct {
@@ -92,23 +85,36 @@ type call struct {
 	err  error
 }
 
+// failure remembers that every source failed for an address, so a broken
+// route is not retried on every check.
+type failure struct {
+	count int
+	until time.Time
+	code  string
+}
+
 // Option customizes a Service.
 type Option func(*Service)
 
-// WithLogger sets the logger. Only reasons and times are logged, never keys.
+// WithLogger sets the logger. Only source IDs and reasons are logged.
 func WithLogger(l *slog.Logger) Option { return func(s *Service) { s.logger = l } }
 
-// NewService returns a Service with the 24 hour TTL and 1000 lookups per UTC day.
-func NewService(st Store, p Provider, clock domain.Clock, opts ...Option) *Service {
+// NewService returns a Service using sources in order when the setting is
+// "auto", with the 24 hour TTL.
+func NewService(st Store, sources []providers.GeoSource, clock domain.Clock, opts ...Option) *Service {
 	s := &Service{
-		TTL: DefaultTTL, DailyLimit: DefaultDailyLimit,
-		store: st, provider: p, clock: clock, logger: slog.Default(),
-		inflight: map[netip.Addr]*call{},
+		TTL: DefaultTTL, store: st, sources: sources, clock: clock, logger: slog.Default(),
+		inflight: map[netip.Addr]*call{}, failures: map[netip.Addr]failure{},
 	}
 	for _, o := range opts {
 		o(s)
 	}
 	return s
+}
+
+// Sources returns the available sources, in the order "auto" tries them.
+func (s *Service) Sources() []providers.GeoSource {
+	return append([]providers.GeoSource(nil), s.sources...)
 }
 
 func normalize(ip netip.Addr) (netip.Addr, error) {
@@ -119,7 +125,7 @@ func normalize(ip netip.Addr) (netip.Addr, error) {
 	return ip, nil
 }
 
-// Peek returns cached data without any network access or budget use.
+// Peek returns cached data without any network access.
 func (s *Service) Peek(ctx context.Context, ip netip.Addr) (GeoView, error) {
 	ip, err := normalize(ip)
 	if err != nil {
@@ -144,11 +150,12 @@ func (s *Service) cachedView(g domain.Geo) GeoView {
 }
 
 // Get returns geolocation for ip, using the cache while it is fresh and
-// otherwise refreshing it if the key, budget and provider pauses allow.
-// Concurrent calls for one address share a single lookup. The returned error
-// is only for unusable input, cancellation and local storage failures;
-// provider problems are described by the view.
-func (s *Service) Get(ctx context.Context, ip netip.Addr) (GeoView, error) {
+// otherwise asking the selected source(s) through client, which must route
+// through the proxy whose exit address is ip. Concurrent calls for one address
+// share a single lookup. The returned error is only for unusable input,
+// cancellation and local storage failures; source problems are described by
+// the view.
+func (s *Service) Get(ctx context.Context, ip netip.Addr, client *http.Client) (GeoView, error) {
 	ip, err := normalize(ip)
 	if err != nil {
 		return GeoView{}, err
@@ -179,7 +186,7 @@ func (s *Service) Get(ctx context.Context, ip netip.Addr) (GeoView, error) {
 
 	// The lookup outlives the first caller's context so that cancelling it
 	// cannot fail the callers waiting on the same address.
-	c.view, c.err = s.refresh(context.WithoutCancel(ctx), ip, cached)
+	c.view, c.err = s.refresh(context.WithoutCancel(ctx), ip, client, cached)
 	s.mu.Lock()
 	delete(s.inflight, ip)
 	s.mu.Unlock()
@@ -195,83 +202,112 @@ func degraded(cached *domain.Geo, status, code string, retryAt time.Time) GeoVie
 	return GeoView{Status: status, ErrorCode: code, RetryAt: retryAt}
 }
 
-func (s *Service) refresh(ctx context.Context, ip netip.Addr, cached *domain.Geo) (GeoView, error) {
-	key, ok, err := s.store.GeoKey(ctx)
-	if err != nil {
-		return GeoView{}, err
-	}
-	if !ok {
-		return degraded(cached, StatusNotConfigured, CodeNotConfigured, time.Time{}), nil
-	}
-	fp := s.store.GeoKeyFingerprint(key)
-	now := s.clock.Now()
-
-	gate, err := s.store.GeoBeginAttempt(ctx, now, fp, s.DailyLimit)
-	if err != nil {
-		return GeoView{}, err
-	}
-	if !gate.Allowed {
-		switch gate.Reason {
-		case store.GateQuota:
-			return degraded(cached, StatusQuotaExhausted, CodeQuota, gate.RetryAt), nil
-		case store.GateForbidden:
-			return degraded(cached, StatusPaused, CodeForbidden, time.Time{}), nil
-		case store.GateRateLimited:
-			return degraded(cached, StatusPaused, CodeRateLimited, gate.RetryAt), nil
+// chosen returns the sources to try for the stored setting: all of them in
+// order for "auto" (or an unknown ID), otherwise the one selected.
+func (s *Service) chosen(setting string) []providers.GeoSource {
+	for _, src := range s.sources {
+		if src.ID == setting {
+			return []providers.GeoSource{src}
 		}
-		return degraded(cached, StatusUnavailable, CodeUnavailable, gate.RetryAt), nil
 	}
-
-	geo, err := s.provider.LookupGeo(ctx, ip)
-	if err == nil {
-		geo.IP = ip.String()
-		geo.FetchedAt = s.clock.Now().UTC()
-		if err := s.store.PutGeoCache(ctx, geo); err != nil {
-			return GeoView{}, err
-		}
-		if err := s.store.GeoClearPause(ctx); err != nil {
-			return GeoView{}, err
-		}
-		return GeoView{Geo: geo, HasGeo: true, Status: StatusFresh}, nil
-	}
-	return s.failed(ctx, err, now, fp, cached)
+	return s.sources
 }
 
-// failed records the pause that follows a provider failure and builds the view.
-func (s *Service) failed(ctx context.Context, err error, now time.Time, fp string, cached *domain.Geo) (GeoView, error) {
-	if errors.Is(err, providers.ErrNotConfigured) {
-		return degraded(cached, StatusNotConfigured, CodeNotConfigured, time.Time{}), nil
-	}
-	st, stErr := s.store.GeoState(ctx)
-	if stErr != nil {
-		return GeoView{}, stErr
-	}
-	backoff := providers.Backoff(st.BackoffAttempt + 1)
-
-	var (
-		reason, code, status string
-		until                time.Time
-	)
-	var pe *providers.Error
-	switch {
-	case errors.As(err, &pe) && pe.Kind == providers.KindRateLimited:
-		reason, code, status = store.GateRateLimited, CodeRateLimited, StatusPaused
-		until = now.Add(backoff)
-		if pe.RetryAfter > 0 {
-			until = now.Add(pe.RetryAfter)
-		}
-	case errors.As(err, &pe) && pe.Kind == providers.KindForbidden:
-		reason, code, status = store.GateForbidden, CodeForbidden, StatusPaused
-	default:
-		reason, code, status = store.GateUnavailable, CodeUnavailable, StatusUnavailable
-		until = now.Add(backoff)
-		if pe != nil && pe.Kind == providers.KindInvalidResponse {
-			code = CodeInvalid
-		}
-	}
-	if err := s.store.GeoSetPause(ctx, now, reason, until, fp); err != nil {
+func (s *Service) refresh(ctx context.Context, ip netip.Addr, client *http.Client, cached *domain.Geo) (GeoView, error) {
+	settings, err := s.store.GetSettings(ctx)
+	if err != nil {
 		return GeoView{}, err
 	}
-	s.logger.Warn("geolocation lookups paused", "reason", reason, "until", until)
-	return degraded(cached, status, code, until), nil
+	if settings.GeoSource == domain.GeoSourceOff {
+		return degraded(cached, StatusOff, CodeOff, time.Time{}), nil
+	}
+	now := s.clock.Now()
+	s.mu.Lock()
+	f, blocked := s.failures[ip]
+	s.mu.Unlock()
+	if blocked && now.Before(f.until) {
+		return degraded(cached, StatusUnavailable, f.code, f.until), nil
+	}
+
+	var (
+		worst   string
+		retryAt time.Time
+	)
+	for _, src := range s.chosen(settings.GeoSource) {
+		sctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+		geo, err := src.Lookup(sctx, client, ip)
+		cancel()
+		if err == nil {
+			geo.IP = ip.String()
+			geo.FetchedAt = s.clock.Now().UTC()
+			if err := s.store.PutGeoCache(ctx, geo); err != nil {
+				return GeoView{}, err
+			}
+			s.mu.Lock()
+			delete(s.failures, ip)
+			s.mu.Unlock()
+			return GeoView{Geo: geo, HasGeo: true, Status: StatusFresh}, nil
+		}
+		code, at := classify(err, now)
+		worst = moreSevere(worst, code)
+		if at.After(retryAt) {
+			retryAt = at
+		}
+		s.logger.Warn("geolocation source failed", "source", src.ID, "reason", code)
+	}
+	return s.remember(ip, now, worst, retryAt, cached), nil
+}
+
+// classify maps a source error to a view code and, for a rate limit, the time
+// the source asked to wait until.
+func classify(err error, now time.Time) (string, time.Time) {
+	var pe *providers.Error
+	if !errors.As(err, &pe) {
+		return CodeUnavailable, time.Time{}
+	}
+	switch pe.Kind {
+	case providers.KindRateLimited:
+		if pe.RetryAfter > 0 {
+			return CodeRateLimited, now.Add(pe.RetryAfter)
+		}
+		return CodeRateLimited, time.Time{}
+	case providers.KindForbidden:
+		return CodeForbidden, time.Time{}
+	case providers.KindInvalidResponse:
+		return CodeInvalid, time.Time{}
+	}
+	return CodeUnavailable, time.Time{}
+}
+
+var severity = map[string]int{"": 0, CodeUnavailable: 1, CodeInvalid: 2, CodeForbidden: 3, CodeRateLimited: 4}
+
+func moreSevere(a, b string) string {
+	if severity[b] > severity[a] {
+		return b
+	}
+	return a
+}
+
+// remember starts or extends the back-off after every source failed.
+func (s *Service) remember(ip netip.Addr, now time.Time, code string, retryAt time.Time, cached *domain.Geo) GeoView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.failures) >= maxTracked {
+		for k, f := range s.failures {
+			if !now.Before(f.until) {
+				delete(s.failures, k)
+			}
+		}
+	}
+	f := s.failures[ip]
+	f.count++
+	until := now.Add(providers.Backoff(f.count))
+	if retryAt.After(until) {
+		until = retryAt
+	}
+	f.until, f.code = until, code
+	if len(s.failures) < maxTracked {
+		s.failures[ip] = f
+	}
+	return degraded(cached, StatusUnavailable, code, until)
 }

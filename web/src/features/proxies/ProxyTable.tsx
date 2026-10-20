@@ -7,7 +7,7 @@ import { formatDateTime, formatDuration, formatPercent, formatRelative } from '.
 
 interface Props {
   proxies: Proxy[];
-  /** Whether a geolocation key is set; without one the location is "Not configured". */
+  /** False when location lookups are switched off in the settings; the location then reads "Off". */
   geoConfigured: boolean;
   selected: Set<number>;
   onToggle: (id: number, on: boolean) => void;
@@ -24,7 +24,7 @@ function jobFor(p: Proxy, kind: CheckKind): ActiveJob | undefined {
 function Location({ proxy, geoConfigured }: { proxy: Proxy; geoConfigured: boolean }) {
   const g = proxy.geo;
   if (!g) {
-    return <span className="muted">{geoConfigured ? 'Unknown' : 'Not configured'}</span>;
+    return <span className="muted">{geoConfigured ? 'Unknown' : 'Off'}</span>;
   }
   const place = [g.city, g.country].filter((s) => s !== '').join(', ');
   return (

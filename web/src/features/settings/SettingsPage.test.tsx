@@ -86,7 +86,6 @@ describe('SettingsPage', () => {
 
   it('never shows or prefills secrets and only sends what was typed', async () => {
     current = makeSettings({
-      geo: { ...makeSettings().geo, has_key: true },
       telegram: { ...makeSettings().telegram, has_token: true, chat_id: '-1001', configured: true },
     });
     const user = mount();
@@ -94,7 +93,6 @@ describe('SettingsPage', () => {
     expect(tg.getByLabelText('Bot token')).toHaveValue('');
     expect(tg.getByLabelText('Bot token')).toHaveAttribute('placeholder', expect.stringMatching(/token is saved/i));
     expect(tg.getByLabelText('Chat ID')).toHaveValue('-1001');
-    expect(within(card('Location lookup')).getByLabelText('API key')).toHaveValue('');
 
     // Saving only the chat ID leaves the token alone.
     await user.clear(tg.getByLabelText('Chat ID'));
@@ -111,28 +109,45 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(tg.getByLabelText('Bot token')).toHaveValue(''));
   });
 
-  it('removes the token and the geolocation key with an explicit empty value', async () => {
+  it('removes the token with an explicit empty value', async () => {
     current = makeSettings({
-      geo: { ...makeSettings().geo, has_key: true },
       telegram: { ...makeSettings().telegram, has_token: true, chat_id: '-1', configured: true },
     });
     const user = mount();
     await user.click(await screen.findByRole('button', { name: 'Remove bot token' }));
     await waitFor(() => expect(e.putSettings).toHaveBeenCalledWith({ telegram: { bot_token: '' } }));
-    await user.click(screen.getByRole('button', { name: 'Remove API key' }));
-    await waitFor(() => expect(e.putSettings).toHaveBeenCalledWith({ geo: { api_key: '' } }));
   });
 
-  it('says Not configured for location lookup and shows daily usage', async () => {
-    current = makeSettings({ geo: { has_key: false, used_today: 12, daily_limit: 1000, paused: false, pause_reason: '', retry_at: null } });
-    mount();
+  it('lets the user pick the location source and says nothing about keys or accounts being needed', async () => {
+    current = makeSettings();
+    const user = mount();
     const g = within(await screen.findByRole('region', { name: 'Location lookup' }));
-    expect(g.getByText(/Not configured\./)).toBeInTheDocument();
-    expect(g.getByText(/Used today: 12 of 1000 lookups\./)).toBeInTheDocument();
-    expect(g.queryByRole('button', { name: 'Remove API key' })).not.toBeInTheDocument();
-    await userEvent.setup().click(g.getByRole('button', { name: 'Save API key' }));
-    expect(e.putSettings).not.toHaveBeenCalled();
-    expect(g.getByRole('alert')).toHaveTextContent('Paste an API key first.');
+    expect(g.getByLabelText('Source')).toHaveValue('auto');
+    expect(g.getByText(/never yours/i)).toBeInTheDocument();
+    expect(g.getByText(/No account or key is needed/i)).toBeInTheDocument();
+    expect(g.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+    expect(g.getByRole('link', { name: 'GeoJS' })).toHaveAttribute('href', 'https://www.geojs.io/');
+    expect(g.getByRole('option', { name: 'GeoJS' })).toBeInTheDocument();
+    expect(g.getByRole('option', { name: 'ipwho.is' })).toBeInTheDocument();
+
+    await user.selectOptions(g.getByLabelText('Source'), 'ipwhois');
+    current = makeSettings({ geo: { ...makeSettings().geo, source: 'ipwhois' } });
+    await user.click(g.getByRole('button', { name: 'Save location source' }));
+    await waitFor(() => expect(e.putSettings).toHaveBeenCalledWith({ geo: { source: 'ipwhois' } }));
+    expect(await g.findByText('Location source saved.')).toBeInTheDocument();
+
+    await user.selectOptions(g.getByLabelText('Source'), 'off');
+    await user.click(g.getByRole('button', { name: 'Save location source' }));
+    await waitFor(() => expect(e.putSettings).toHaveBeenLastCalledWith({ geo: { source: 'off' } }));
+  });
+
+  it('shows the server message when the source cannot be saved', async () => {
+    current = makeSettings();
+    e.putSettings.mockRejectedValueOnce(new ApiError(422, 'validation_failed', 'Some fields are not valid.', { geo_source: 'Choose auto, off or one of the listed sources.' }));
+    const user = mount();
+    const g = within(await screen.findByRole('region', { name: 'Location lookup' }));
+    await user.click(g.getByRole('button', { name: 'Save location source' }));
+    expect(await g.findByRole('alert')).toHaveTextContent(/Choose auto, off/);
   });
 
   it('queues a test message without claiming it was delivered', async () => {
@@ -207,17 +222,5 @@ describe('SettingsPage', () => {
   it('credits the bundled flag icons', async () => {
     mount();
     expect(await screen.findByText(/flag-icons package \(MIT license\)/)).toBeInTheDocument();
-  });
-});
-
-describe('SettingsPage location key help', () => {
-  it('tells where to get the ipapi.is key and links to the site and the documentation', async () => {
-    e.getSettings.mockResolvedValue(makeSettings());
-    mount();
-    const region = await screen.findByRole('region', { name: 'Location lookup' });
-    expect(within(region).getByText(/create a free account/i)).toBeInTheDocument();
-    expect(within(region).getByText(/refused from a VPN/i)).toBeInTheDocument();
-    expect(within(region).getByRole('link', { name: 'ipapi.is' })).toHaveAttribute('href', 'https://ipapi.is/');
-    expect(within(region).getByRole('link', { name: 'documentation' })).toHaveAttribute('href', 'https://ipapi.is/developers.html');
   });
 });

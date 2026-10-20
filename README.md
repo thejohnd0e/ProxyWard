@@ -16,7 +16,7 @@ Self-hosted monitor for up to 100 HTTP, HTTPS and SOCKS5 proxies on your local n
 
 - Manual and interval checks per proxy, with the failure reason and the observed exit IP.
 - Download and upload speed over a bounded sample; a missing result is shown as missing, never as zero.
-- Exit-IP country, city and ASN through an optional ipapi.is key (cached, daily budget respected).
+- Exit-IP country, city and network with no account or key. Several public sources (GeoJS, ipwho.is, ipapi.co, ip.sb, ipinfo.io) can be chosen in the settings, or tried in turn. They are asked **through the proxy itself**, so they see only the proxy's address, never yours.
 - History with latency and speed charts, incidents, and Telegram notifications.
 - Import proxies from a list, with a preview and duplicate detection.
 - English-only web interface in a restrained macOS-like style: light, dark or system theme, usable on a phone.
@@ -59,7 +59,7 @@ docker compose run --rm -T proxyward restore --input - --force < backup.tar.gz  
 
 ## Status
 
-Backend, web interface, container, backups and retention are implemented and tested locally and on a Debian test VM. Not yet verified with real services: monitoring of real proxies from Debian, a live ipapi.is key, a live Telegram bot and IPv6 egress.
+Backend, web interface, container, backups and retention are implemented and tested locally and on a Debian test VM. Not yet verified with real services: monitoring of real proxies from Debian, a live Telegram bot and IPv6 egress.
 
 ## Develop from source
 

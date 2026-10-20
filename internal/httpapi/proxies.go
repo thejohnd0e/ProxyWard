@@ -300,12 +300,12 @@ func (s *Server) listProxies(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "list proxies", err)
 		return
 	}
-	_, geoConfigured, err := s.db.GeoKey(r.Context())
+	cur, err := s.db.GetSettings(r.Context())
 	if err != nil {
-		s.internalError(w, "read geolocation key", err)
+		s.internalError(w, "read settings", err)
 		return
 	}
-	apierr.JSON(w, http.StatusOK, map[string]any{"proxies": out, "limit": domain.MaxProxies, "geo_configured": geoConfigured})
+	apierr.JSON(w, http.StatusOK, map[string]any{"proxies": out, "limit": domain.MaxProxies, "geo_configured": cur.GeoSource != domain.GeoSourceOff})
 }
 
 func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {

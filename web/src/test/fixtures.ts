@@ -74,7 +74,13 @@ export function makeSettings(overrides: Partial<SettingsView> = {}): SettingsVie
       down_threshold: 3,
       retention_days: 30,
     },
-    geo: { has_key: false, used_today: 0, daily_limit: 1000, paused: false, pause_reason: '', retry_at: null },
+    geo: {
+      source: 'auto',
+      sources: [
+        { id: 'geojs', name: 'GeoJS', site: 'https://www.geojs.io/' },
+        { id: 'ipwhois', name: 'ipwho.is', site: 'https://ipwho.is/' },
+      ],
+    },
     telegram: {
       has_token: false,
       chat_id: '',

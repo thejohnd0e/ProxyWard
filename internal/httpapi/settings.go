@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/thejohnd0e/ProxyWard/internal/apierr"
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
@@ -14,9 +13,6 @@ import (
 	"github.com/thejohnd0e/ProxyWard/internal/providers"
 	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
-
-// geoDailyLimit mirrors geo.DefaultDailyLimit for display.
-const geoDailyLimit = 1000
 
 // WithReconcile registers a function that applies schedule changes at once
 // after the settings were updated.
@@ -48,7 +44,7 @@ type settingsUpdate struct {
 		RetentionDays                optional[int]   `json:"retention_days"`
 	} `json:"monitoring"`
 	Geo *struct {
-		APIKey optional[string] `json:"api_key"`
+		Source optional[string] `json:"source"`
 	} `json:"geo"`
 	Telegram *struct {
 		BotToken optional[string] `json:"bot_token"`
@@ -127,20 +123,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	var geoKey *string
-	if g := in.Geo; g != nil && g.APIKey.Present {
+	geoChanged := false
+	if g := in.Geo; g != nil && g.Source.Present {
 		switch {
-		case g.APIKey.Null:
-			fields["api_key"] = "Must not be null."
-		case g.APIKey.Value != "" && !validGeoKey(strings.TrimSpace(g.APIKey.Value)):
-			fields["api_key"] = "Must be 8 to 200 visible characters without spaces."
+		case g.Source.Null:
+			fields["geo_source"] = "Must not be null."
+		case !s.validGeoSource(g.Source.Value):
+			fields["geo_source"] = "Choose auto, off or one of the listed sources."
 		default:
-			v := strings.TrimSpace(g.APIKey.Value)
-			geoKey = &v
+			next.GeoSource = g.Source.Value
+			geoChanged = true
 		}
 	}
 
-	if len(fields) == 0 && in.Monitoring != nil {
+	if len(fields) == 0 && (in.Monitoring != nil || geoChanged) {
 		var se *domain.SettingsError
 		if err := next.Validate(); errors.As(err, &se) {
 			fields[se.Field] = capitalize(se.Message) + "."
@@ -153,7 +149,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	now := s.clock.Now()
-	if in.Monitoring != nil {
+	if in.Monitoring != nil || geoChanged {
 		if err := s.db.PutSettings(ctx, next, now); err != nil {
 			s.internalError(w, "store settings", err)
 			return
@@ -162,12 +158,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if tg.Token != nil || tg.ChatID != nil {
 		if err := s.db.SetTelegram(ctx, tg, now); err != nil {
 			s.secretStoreError(w, "store telegram settings", err)
-			return
-		}
-	}
-	if geoKey != nil {
-		if err := s.db.SetGeoKey(ctx, *geoKey, now); err != nil {
-			s.secretStoreError(w, "store geolocation key", err)
 			return
 		}
 	}
@@ -205,16 +195,20 @@ func applySchedule(dst *domain.Schedule, in *scheduleUpdate, name string, fields
 	}
 }
 
-func validGeoKey(k string) bool {
-	if len(k) < 8 || len(k) > 200 {
+// validGeoSource accepts auto, off and the ID of a known source.
+func (s *Server) validGeoSource(v string) bool {
+	if v == domain.GeoSourceAuto || v == domain.GeoSourceOff {
+		return true
+	}
+	if s.geo == nil {
 		return false
 	}
-	for _, r := range k {
-		if r > unicode.MaxASCII || !unicode.IsPrint(r) || unicode.IsSpace(r) {
-			return false
+	for _, src := range s.geo.Sources() {
+		if src.ID == v {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func capitalize(s string) string {
@@ -236,16 +230,6 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "read telegram settings", err)
 		return
 	}
-	_, hasGeo, err := s.db.GeoKey(ctx)
-	if err != nil {
-		s.internalError(w, "read geolocation key", err)
-		return
-	}
-	geoState, err := s.db.GeoState(ctx)
-	if err != nil {
-		s.internalError(w, "read geolocation state", err)
-		return
-	}
 	out, err := s.db.OutboxSummary(ctx)
 	if err != nil {
 		s.internalError(w, "read delivery state", err)
@@ -258,11 +242,17 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.clock.Now()
 
-	used := 0
-	if geoState.BudgetDay == now.UTC().Format("2006-01-02") {
-		used = geoState.Used
+	type geoSourceDTO struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Site string `json:"site"`
 	}
-	geoPaused := geoState.PauseReason != "" && (geoState.PauseUntil.IsZero() || geoState.PauseUntil.After(now))
+	geoSources := []geoSourceDTO{}
+	if s.geo != nil {
+		for _, src := range s.geo.Sources() {
+			geoSources = append(geoSources, geoSourceDTO{ID: src.ID, Name: src.Name, Site: src.Site})
+		}
+	}
 
 	apierr.JSON(w, http.StatusOK, map[string]any{
 		"monitoring": map[string]any{
@@ -275,10 +265,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 			"down_threshold":                  cur.DownThreshold,
 			"retention_days":                  cur.RetentionDays,
 		},
-		"geo": map[string]any{
-			"has_key": hasGeo, "used_today": used, "daily_limit": geoDailyLimit,
-			"paused": geoPaused, "pause_reason": pauseReason(geoPaused, geoState.PauseReason), "retry_at": nullTime(geoPaused, geoState.PauseUntil),
-		},
+		"geo": map[string]any{"source": cur.GeoSource, "sources": geoSources},
 		"telegram": map[string]any{
 			"has_token": tgCfg.Token != "", "chat_id": tgCfg.ChatID, "configured": tgCfg.Configured(),
 			"delivery": map[string]any{

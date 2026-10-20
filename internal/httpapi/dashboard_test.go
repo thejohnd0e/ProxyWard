@@ -10,6 +10,7 @@ import (
 
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 	"github.com/thejohnd0e/ProxyWard/internal/geo"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
 )
 
 type fakePeek struct {
@@ -70,8 +71,8 @@ func TestProxyListCarriesStatusSpeedGeoAndUptime(t *testing.T) {
 	addResults(t, s, id)
 
 	list := decode(t, s.call("GET", "/api/proxies", nil))
-	if list["geo_configured"] != false {
-		t.Fatalf("%v", list["geo_configured"])
+	if list["geo_configured"] != true {
+		t.Fatalf("lookups are on by default: %v", list["geo_configured"])
 	}
 	var a, b m
 	for _, it := range list["proxies"].([]any) {
@@ -150,11 +151,15 @@ func TestActiveJobsAndNextRunsAreShown(t *testing.T) {
 	}
 }
 
-func TestGeoConfiguredFlag(t *testing.T) {
+func TestGeoConfiguredFlagFollowsTheOffSetting(t *testing.T) {
 	s := newSession(t)
-	s.call("PUT", "/api/settings", m{"geo": m{"api_key": "a-valid-geo-key-1"}})
+	s.call("PUT", "/api/settings", m{"geo": m{"source": "off"}})
+	if decode(t, s.call("GET", "/api/proxies", nil))["geo_configured"] != false {
+		t.Fatal("geo_configured must be false while lookups are off")
+	}
+	s.call("PUT", "/api/settings", m{"geo": m{"source": "beta"}})
 	if decode(t, s.call("GET", "/api/proxies", nil))["geo_configured"] != true {
-		t.Fatal("geo_configured not reported")
+		t.Fatal("geo_configured must be true again")
 	}
 }
 
@@ -303,3 +308,10 @@ func TestChartEndpointKeepsGapsAndBoundsPoints(t *testing.T) {
 type peekFunc func(ctx context.Context, ip netip.Addr) (geo.GeoView, error)
 
 func (f peekFunc) Peek(ctx context.Context, ip netip.Addr) (geo.GeoView, error) { return f(ctx, ip) }
+
+func (peekFunc) Sources() []providers.GeoSource {
+	return []providers.GeoSource{
+		{ID: "alpha", Name: "Alpha", Site: "https://alpha.example/"},
+		{ID: "beta", Name: "Beta", Site: "https://beta.example/"},
+	}
+}

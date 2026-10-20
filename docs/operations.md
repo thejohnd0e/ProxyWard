@@ -5,7 +5,7 @@ How to run, back up, restore and upgrade Proxy Checker in Docker on a Debian hos
 ## Requirements
 
 - Docker Engine with the Compose plugin.
-- Outbound internet access from the container: the proxies you monitor, `api.ipify.org`, `checkip.amazonaws.com`, `speed.cloudflare.com`, and optionally `api.ipapi.is` and `api.telegram.org`.
+- Outbound internet access from the container: the proxies you monitor, `api.ipify.org`, `checkip.amazonaws.com`, `speed.cloudflare.com`, the location sources you allow (`get.geojs.io`, `ipwho.is`, `ipapi.co`, `api.ip.sb`, `ipinfo.io`) and, if used, `api.telegram.org`. The location sources and the speed service are reached **through the proxy being checked**, so they see the proxy's address, not the host's. Only Telegram is contacted directly.
 
 ## First start
 
@@ -33,12 +33,21 @@ Open `http://<host address>:PORT/`. Check health with `docker compose ps` (statu
 - Restrict access with `BIND_ADDRESS` and your host firewall. Docker publishes ports through its own iptables rules, so a ufw rule alone may not block a published port; prefer `BIND_ADDRESS` or rules in the `DOCKER-USER` chain. The application does not change firewall or router settings.
 - Do not publish the port to the internet.
 
+## Location lookup
+
+Country, city and network come from public services that describe whoever asks. ProxyWard asks them through the proxy being checked, once per exit address a day (the answer is cached for 24 hours), and accepts an answer only if it names the exit address already observed. Consequences:
+
+- The services see the proxy's address and never the address of the host, and no account or key is involved.
+- The setting `Location lookup > Source` is `Automatic` (the sources are tried in turn; a failing one is skipped and the address is retried after a growing pause), one named source, or `Off`.
+- Cities differ between services and are approximate; the country and network agree in practice. `ipinfo.io` returns only a country code, so the country name is blank there.
+- A proxy that cannot reach these services simply shows `Unknown`; availability is never affected.
+
 ## Data and the secrets key
 
 The named volume `proxyward-data` is mounted at `/data` and holds:
 
 - `state.db` (SQLite, WAL mode): proxies, history, incidents, settings;
-- `secrets.key` (32 bytes, mode 0600): encrypts proxy passwords, the Telegram bot token and the geolocation key stored in the database.
+- `secrets.key` (32 bytes, mode 0600): encrypts proxy passwords and the Telegram bot token stored in the database.
 
 The database is useless for stored secrets without the key, and the key is useless without the database. Always keep them together. If `secrets.key` is lost while the database holds encrypted records, the server refuses to start rather than create a new key.
 
@@ -95,4 +104,4 @@ Run the same `admin set-password` command as for the first start. Stop and start
 
 Verified on the Debian 13 VM: image build, compose config, socket binding on the chosen address, healthcheck, security headers, password setup, proxy creation with a stored password (never returned by the API), persistence across `--force-recreate`, data file modes, backup while running, restore into a disposable volume (the restored instance accepted the password and kept the proxy and its stored password), graceful stop.
 
-Not verified (needs supplied credentials or hardware): monitoring of real HTTP/HTTPS/SOCKS5 proxies from Debian, a real ipapi.is key, a real Telegram bot, IPv6 egress, behaviour behind a TLS reverse proxy.
+Not verified (needs supplied credentials or hardware): monitoring of real HTTP/HTTPS/SOCKS5 proxies from Debian, a real Telegram bot, IPv6 egress, behaviour behind a TLS reverse proxy.

@@ -51,7 +51,7 @@ func TestMigrateCreatesSpecTables(t *testing.T) {
 	db := openMigrated(t)
 	for _, table := range []string{
 		"proxies", "settings", "admin", "sessions", "jobs", "availability_results",
-		"speed_results", "geo_cache", "events", "notification_outbox", "schema_migrations", "incidents", "geo_state", "provider_pause", "proxy_state",
+		"speed_results", "geo_cache", "events", "notification_outbox", "schema_migrations", "incidents", "provider_pause", "proxy_state",
 	} {
 		if n := countRows(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table); n != 1 {
 			t.Errorf("table %s missing", table)

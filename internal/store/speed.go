@@ -211,3 +211,9 @@ func (s *Store) ClearProviderPause(ctx context.Context, provider string) error {
 	}
 	return nil
 }
+
+// Provider pause reasons.
+const (
+	GateRateLimited = "rate_limited"
+	GateForbidden   = "forbidden"
+)

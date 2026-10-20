@@ -38,7 +38,7 @@ const shutdownTimeout = 10 * time.Second
 type Options struct {
 	IPProviders  []providers.IPProvider // default: ipify, then AWS checkip
 	SpeedService *providers.Cloudflare  // default: Cloudflare
-	GeoURL       string                 // default: ipapi.is
+	GeoSources   []providers.GeoSource  // default: the built-in keyless sources
 	TelegramURL  string                 // default: api.telegram.org
 	// RootCAs, when set, is trusted for proxy, target, geolocation and Telegram
 	// TLS. It exists for local certificate authorities in tests.
@@ -118,12 +118,11 @@ func RunWith(ctx context.Context, cfg config.Config, opts Options) error {
 func newJobService(ctx context.Context, db *store.Store, opts Options) (*jobs.Service, *geo.Service, func()) {
 	var geoWG sync.WaitGroup
 	clock := domain.SystemClock{}
-	geoClient := providers.NewIPAPI(db.GeoKey)
-	if opts.GeoURL != "" {
-		geoClient.URL = opts.GeoURL
+	geoSources := opts.GeoSources
+	if len(geoSources) == 0 {
+		geoSources = providers.GeoSources()
 	}
-	trustRoots(geoClient.Client, opts.RootCAs)
-	geoSvc := geo.NewService(db, geoClient, clock)
+	geoSvc := geo.NewService(db, geoSources, clock)
 
 	checker := check.NewChecker()
 	if len(opts.IPProviders) > 0 {
@@ -145,7 +144,9 @@ func newJobService(ctx context.Context, db *store.Store, opts Options) (*jobs.Se
 		Availability: checker, Speed: speed, NewClient: newClient,
 		Incidents: &notify.IncidentTracker{Store: db},
 	})
-	svc.Runner.OnAvailability = func(a domain.Availability) {
+	// Geolocation of a new exit address is asked through the same proxy, so the
+	// source sees the proxy's address and never this machine's.
+	svc.Runner.OnAvailability = func(p domain.Proxy, a domain.Availability) {
 		addr, err := netip.ParseAddr(a.ExitIP)
 		if a.State != domain.StateUp || err != nil {
 			return
@@ -153,9 +154,14 @@ func newJobService(ctx context.Context, db *store.Store, opts Options) (*jobs.Se
 		geoWG.Add(1)
 		go func() {
 			defer geoWG.Done()
-			gctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			gctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_, _ = geoSvc.Get(gctx, addr)
+			client, err := newClient(p, 10*time.Second)
+			if err != nil {
+				return
+			}
+			defer client.CloseIdleConnections()
+			_, _ = geoSvc.Get(gctx, addr, client)
 		}()
 	}
 	return svc, geoSvc, geoWG.Wait

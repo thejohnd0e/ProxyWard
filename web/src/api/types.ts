@@ -220,12 +220,9 @@ export interface SettingsView {
     retention_days: number;
   };
   geo: {
-    has_key: boolean;
-    used_today: number;
-    daily_limit: number;
-    paused: boolean;
-    pause_reason: string;
-    retry_at: string | null;
+    /** "auto", "off" or the ID of one source. */
+    source: string;
+    sources: GeoSourceInfo[];
   };
   telegram: {
     has_token: boolean;
@@ -248,9 +245,14 @@ export interface SettingsUpdate {
     down_threshold?: number;
     retention_days?: number;
   };
-  /** Omit to keep, a string to replace, an empty string to remove. */
-  geo?: { api_key?: string };
+  geo?: { source?: string };
   telegram?: { bot_token?: string; chat_id?: string };
+}
+
+export interface GeoSourceInfo {
+  id: string;
+  name: string;
+  site: string;
 }
 
 export interface SessionInfo {

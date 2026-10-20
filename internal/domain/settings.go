@@ -34,7 +34,17 @@ type Settings struct {
 
 	DownThreshold int // consecutive definite failures before a down incident, 1-10
 	RetentionDays int // history retention, 1-365
+
+	// GeoSource selects where exit-IP geolocation comes from: GeoSourceAuto
+	// (try the sources in order), GeoSourceOff, or the ID of one source.
+	GeoSource string
 }
+
+// Geolocation source choices that are not a concrete source.
+const (
+	GeoSourceAuto = "auto"
+	GeoSourceOff  = "off"
+)
 
 // DefaultSettings returns the specified defaults. Both schedules start
 // disabled; the intervals are the suggested values (5 minutes, 6 hours).
@@ -49,6 +59,7 @@ func DefaultSettings() Settings {
 		SpeedDirectionTimeout:   30 * time.Second,
 		DownThreshold:           3,
 		RetentionDays:           30,
+		GeoSource:               GeoSourceAuto,
 	}
 }
 
@@ -79,6 +90,8 @@ func (s Settings) Validate() error {
 		return bad("down_threshold", "must be between 1 and 10")
 	case s.RetentionDays < 1 || s.RetentionDays > 365:
 		return bad("retention_days", "must be between 1 and 365")
+	case s.GeoSource == "" || len(s.GeoSource) > 32:
+		return bad("geo_source", "must be auto, off or the ID of a source")
 	}
 	return nil
 }

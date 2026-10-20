@@ -44,7 +44,6 @@ test('adds a proxy with the form and sees it become Up with its exit IP', async 
   await page.getByRole('button', { name: `Check availability of ${office.name}` }).click();
   await expect(row(office.name).locator('.status--up')).toBeVisible();
   await expect(row(office.name).getByText(office.exit_ip!)).toBeVisible();
-  await expect(row(office.name).getByText('Not configured')).toBeVisible(); // no geolocation key yet
   await shot(page, info, 'one-proxy-up');
 });
 
@@ -94,15 +93,14 @@ test('checks every proxy and explains each outcome', async ({}, info) => {
   await shot(page, info, 'all-checked');
 });
 
-test('shows country, city and network once a geolocation key is saved', async ({}, info) => {
+test('shows country, city and network without any key, and the source can be chosen', async ({}, info) => {
   await page.getByRole('link', { name: 'Settings' }).click();
   const geo = page.getByRole('region', { name: 'Location lookup' });
-  await expect(geo.getByText(/Not configured\./)).toBeVisible();
-  await geo.getByLabel('API key').fill(fx.geo_key);
-  await geo.getByRole('button', { name: 'Save API key' }).click();
-  await expect(geo.getByText('API key saved.')).toBeVisible();
-  await expect(geo.getByText(/An ipapi.is key is saved\./)).toBeVisible();
-  await expect(geo.getByLabel('API key')).toHaveValue('');
+  await expect(geo.getByLabel('Source')).toHaveValue('auto');
+  await expect(geo.getByLabel(/api key/i)).toHaveCount(0);
+  await geo.getByLabel('Source').selectOption('fixture');
+  await geo.getByRole('button', { name: 'Save location source' }).click();
+  await expect(geo.getByText('Location source saved.')).toBeVisible();
 
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
   await checkAll();

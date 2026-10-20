@@ -85,14 +85,14 @@ describe('ProxyTable', () => {
     expect(within(r).getByText('The proxy rejected the credentials.')).toBeInTheDocument();
   });
 
-  it('tells apart geolocation that is not configured, unknown and stale', () => {
+  it('tells apart geolocation that is off, unknown and stale', () => {
     const { rerender } = render(<div />);
     rerender(<div />);
     setup([makeUpProxy({ name: 'NoGeo', geo: null })], { geoConfigured: false });
-    expect(within(row('NoGeo')).getByText('Not configured')).toBeInTheDocument();
+    expect(within(row('NoGeo')).getByText('Off')).toBeInTheDocument();
   });
 
-  it('shows Unknown location when geolocation is configured but has no data', () => {
+  it('shows Unknown location when lookups are on but there is no data yet', () => {
     setup([makeUpProxy({ name: 'NoData', geo: null })], { geoConfigured: true });
     expect(within(row('NoData')).getByText('Unknown')).toBeInTheDocument();
   });

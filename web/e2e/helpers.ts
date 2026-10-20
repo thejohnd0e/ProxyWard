@@ -4,7 +4,6 @@ export const CONTROL = 'http://127.0.0.1:18081';
 
 export interface Fixtures {
   admin_password: string;
-  geo_key: string;
   telegram_token: string;
   telegram_chat: string;
   proxies: Array<{ name: string; protocol: string; host: string; port: number; username?: string; password?: string; exit_ip?: string }>;
