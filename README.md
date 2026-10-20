@@ -1,5 +1,6 @@
 # ProxyWard
 
+[![CI](https://github.com/thejohnd0e/ProxyWard/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thejohnd0e/ProxyWard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/thejohnd0e/ProxyWard)](LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
