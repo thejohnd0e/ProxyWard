@@ -46,6 +46,15 @@ Open that address in a browser. On the first visit ProxyWard asks you to create 
 
 The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true` in `.env`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
 
+**Update.** In the directory where you cloned the project:
+
+```text
+git pull
+./start.sh
+```
+
+Your data (the password, proxies, history, settings) lives in a Docker volume and is kept; `.env` is not touched by `git pull`, so the port stays the same. Take a backup first if you like (see below). Never run `docker compose down -v`: it deletes the data.
+
 Forgot the password? Reset it on the server: `docker compose run --rm proxyward admin set-password`.
 
 Backup and restore:
