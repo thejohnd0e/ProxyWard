@@ -28,17 +28,46 @@ Stack: Go, React/TypeScript and SQLite in one Docker container on Debian with a 
 
 Requirements: Docker Engine with the Compose plugin, and a LAN address on the host.
 
+**1. Get the code**
+
 ```text
 git clone https://github.com/thejohnd0e/ProxyWard.git
 cd ProxyWard
-cp .env.example .env                                        # set LAN_IP (and PORT if 8080 is taken)
-docker compose up -d --build
-docker compose run --rm proxyward admin set-password    # at least 12 characters
 ```
 
-Open `http://LAN_IP:PORT/` (default `http://LAN_IP:8080/`) and sign in. The host port is set by `PORT` in `.env` (default 8080); pick another one if 8080 is already in use on the host (`ss -ltn | grep :8080` shows whether it is). The port is published only on `LAN_IP`. The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
+**2. Create the settings file and edit it**
 
-Docker, backup and restore commands:
+```text
+cp .env.example .env
+nano .env
+```
+
+`.env` is a small text file with these lines (change the values, keep the names):
+
+```text
+LAN_IP=192.168.0.10
+PORT=8080
+```
+
+- `LAN_IP`: the address of this machine on your local network. Required. ProxyWard listens only on this address.
+- `PORT`: the port the web interface will use. Pick any free port if 8080 is already taken, for example `PORT=9090`. To see which ports are in use: `ss -ltn`.
+
+**3. Start it and set the administrator password**
+
+```text
+docker compose up -d --build
+docker compose run --rm proxyward admin set-password
+```
+
+The password needs at least 12 characters.
+
+**4. Open the interface**
+
+Go to `http://LAN_IP:PORT/` with your values, for example `http://192.168.0.10:9090/`, and sign in. To change the port later, edit `PORT` in `.env` and run `docker compose up -d` again.
+
+The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true` in `.env`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
+
+Backup and restore:
 
 ```text
 docker compose exec -T proxyward proxyward backup --output /data/backup.tar.gz
