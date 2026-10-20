@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"proxy-checker/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
 )
 
 type session struct {

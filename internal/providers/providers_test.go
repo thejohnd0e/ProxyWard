@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 // serve starts a fixture HTTPS service and returns a client trusting it.

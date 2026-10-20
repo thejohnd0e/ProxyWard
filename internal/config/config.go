@@ -16,9 +16,9 @@ type Config struct {
 }
 
 const (
-	EnvListenAddr    = "PROXY_CHECKER_LISTEN"
-	EnvDataDir       = "PROXY_CHECKER_DATA_DIR"
-	EnvSessionSecure = "PROXY_CHECKER_SESSION_SECURE"
+	EnvListenAddr    = "PROXYWARD_LISTEN"
+	EnvDataDir       = "PROXYWARD_DATA_DIR"
+	EnvSessionSecure = "PROXYWARD_SESSION_SECURE"
 
 	DefaultListenAddr = "127.0.0.1:8080"
 	DefaultDataDir    = "data"

@@ -1,4 +1,4 @@
-module proxy-checker
+module github.com/thejohnd0e/ProxyWard
 
 go 1.27.0
 

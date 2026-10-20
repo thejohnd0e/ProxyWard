@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"proxy-checker/internal/check"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/check"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // AvailabilityChecker runs one availability check.

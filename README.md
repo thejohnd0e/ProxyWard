@@ -12,7 +12,7 @@ Self-hosted monitor for up to 100 HTTP, HTTPS and SOCKS5 proxies on your local n
 - English-only web interface in a restrained macOS-like style: light, dark or system theme, usable on a phone.
 - Single administrator, passwords hashed with Argon2id, stored proxy and bot secrets encrypted at rest, secrets never returned by the API.
 
-Stack: Go, React/TypeScript and SQLite in one Docker container on Debian with a persistent volume. The Go module and the binary are still named `proxy-checker`.
+Stack: Go, React/TypeScript and SQLite in one Docker container on Debian with a persistent volume.
 
 ## Install (Docker)
 
@@ -23,7 +23,7 @@ git clone https://github.com/thejohnd0e/ProxyWard.git
 cd ProxyWard
 cp .env.example .env                                        # set LAN_IP to this host's LAN address
 docker compose up -d --build
-docker compose run --rm proxy-checker admin set-password    # at least 12 characters
+docker compose run --rm proxyward admin set-password    # at least 12 characters
 ```
 
 Open `http://LAN_IP:8080/` and sign in. The port is published only on `LAN_IP`. The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
@@ -31,8 +31,8 @@ Open `http://LAN_IP:8080/` and sign in. The port is published only on `LAN_IP`. 
 Docker, backup and restore commands:
 
 ```text
-docker compose exec -T proxy-checker proxy-checker backup --output /data/backup.tar.gz
-docker compose run --rm -T proxy-checker restore --input - --force < backup.tar.gz   (server stopped)
+docker compose exec -T proxyward proxyward backup --output /data/backup.tar.gz
+docker compose run --rm -T proxyward restore --input - --force < backup.tar.gz   (server stopped)
 ```
 
 `docker compose down -v` deletes all data. The data volume holds `state.db` and `secrets.key`; back them up together.
@@ -56,26 +56,26 @@ Verified toolchain (Windows development machine, 2026-10-20):
 Run the server (data is stored in `./data` by default):
 
 ```text
-go run ./cmd/proxy-checker
+go run ./cmd/proxyward
 ```
 
 Environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PROXY_CHECKER_LISTEN` | `127.0.0.1:8080` | Listen address (`host:port`, port 1-65535) |
-| `PROXY_CHECKER_DATA_DIR` | `data` | Directory for `state.db` |
-| `PROXY_CHECKER_SESSION_SECURE` | `false` | Mark session cookies Secure (for HTTPS) |
+| `PROXYWARD_LISTEN` | `127.0.0.1:8080` | Listen address (`host:port`, port 1-65535) |
+| `PROXYWARD_DATA_DIR` | `data` | Directory for `state.db` |
+| `PROXYWARD_SESSION_SECURE` | `false` | Mark session cookies Secure (for HTTPS) |
 
 `GET /healthz` returns 200 when the database is reachable. The web interface is served at `/` (sign in with the administrator password), the JSON API under `/api/`.
 
 Set or reset the administrator password before first login (prompts on a terminal, or reads the first line of piped stdin; never pass it as an argument):
 
 ```text
-go run ./cmd/proxy-checker admin set-password
+go run ./cmd/proxyward admin set-password
 ```
 
-The password needs at least 12 characters, and resetting it revokes all sessions. The data directory also holds `secrets.key`, which encrypts stored secrets: back it up together with `state.db`. If the key is lost while encrypted records exist, the server refuses to start rather than creating a new key. Session cookies are not marked Secure unless `PROXY_CHECKER_SESSION_SECURE=true`, so plain-HTTP LAN use works but sends the cookie unencrypted.
+The password needs at least 12 characters, and resetting it revokes all sessions. The data directory also holds `secrets.key`, which encrypts stored secrets: back it up together with `state.db`. If the key is lost while encrypted records exist, the server refuses to start rather than creating a new key. Session cookies are not marked Secure unless `PROXYWARD_SESSION_SECURE=true`, so plain-HTTP LAN use works but sends the cookie unencrypted.
 
 ## Build and tests
 
@@ -101,8 +101,8 @@ The stand needs Go on the PATH. Its admin password is printed by `http://127.0.0
 
 See [AGENTS.md](AGENTS.md) for shared coding-agent instructions. Current project status, decisions, and pending work are tracked in [STATUS.md](STATUS.md), [DECISIONS.md](DECISIONS.md), and [TODO.md](TODO.md).
 
-- [Design specification](docs/superpowers/specs/2026-10-19-proxy-checker-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-10-19-proxy-checker.md)
+- [Design specification](docs/superpowers/specs/2026-10-19-proxyward-design.md)
+- [Implementation plan](docs/superpowers/plans/2026-10-19-proxyward.md)
 - [Public-service verification](docs/research/2026-10-19-public-services.md)
 
 All project content is English-only. Development conversations with agents are in Russian.

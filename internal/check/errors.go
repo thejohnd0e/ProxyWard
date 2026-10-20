@@ -8,9 +8,9 @@ import (
 	"errors"
 	"net"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/proxy"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/proxy"
 )
 
 // Failure codes stored with results.

@@ -13,10 +13,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 var t0 = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)

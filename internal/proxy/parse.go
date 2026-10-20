@@ -11,7 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // Parse error codes. They are stable identifiers shown in import previews.

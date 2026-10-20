@@ -84,7 +84,7 @@ describe('authentication', () => {
 
     e.login.mockRejectedValueOnce(new ApiError(503, 'not_initialized', 'x'));
     await submit('again');
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('proxy-checker admin set-password'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('proxyward admin set-password'));
   });
 
   it('asks for a password instead of sending an empty one', async () => {
@@ -121,7 +121,7 @@ describe('authentication', () => {
     await screen.findByText('Visible after login');
     await user.selectOptions(screen.getByLabelText('Theme'), 'dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    expect(window.localStorage.getItem('proxy-checker.theme')).toBe('dark');
+    expect(window.localStorage.getItem('proxyward.theme')).toBe('dark');
     await user.selectOptions(screen.getByLabelText('Theme'), 'system');
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });

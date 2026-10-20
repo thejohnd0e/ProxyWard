@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func avail(id domain.ProxyID, at time.Time, st domain.State, code string) domain.Availability {

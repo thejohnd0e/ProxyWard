@@ -9,7 +9,7 @@ import (
 	"net/netip"
 	"strconv"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // SOCKS5 constants (RFC 1928, RFC 1929).

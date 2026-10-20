@@ -31,7 +31,7 @@ func NewCA(t testing.TB) *CA {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial(t),
-		Subject:               pkix.Name{CommonName: "proxy-checker test CA"},
+		Subject:               pkix.Name{CommonName: "proxyward test CA"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,
@@ -60,7 +60,7 @@ func (ca *CA) Issue(t testing.TB, dnsNames []string, ips []net.IP) tls.Certifica
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(t),
-		Subject:      pkix.Name{CommonName: "proxy-checker test server"},
+		Subject:      pkix.Name{CommonName: "proxyward test server"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

@@ -3,7 +3,7 @@ package providers
 import (
 	"crypto/tls"
 
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 func testTLS(ca *testkit.CA) *tls.Config {

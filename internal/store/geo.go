@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // ErrSecretsUnavailable is returned when a secret must be stored but no

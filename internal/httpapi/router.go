@@ -9,11 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/auth"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // Default request body cap; proxy routes use maxProxyBodyBytes.

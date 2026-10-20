@@ -16,7 +16,7 @@
 
 ## 2026-10-20 — Task 1 technical choices
 
-- **Decision:** Go 1.27.0 (installed with user approval via winget) and pure-Go `modernc.org/sqlite` v1.60.1 with `CGO_ENABLED=0`; module name `proxy-checker`.
+- **Decision:** Go 1.27.0 (installed with user approval via winget) and pure-Go `modernc.org/sqlite` v1.60.1 with `CGO_ENABLED=0`; module name `proxy-checker` (renamed, see the 2026-10-20 rename decision).
 - **Decision:** Timestamps are Unix milliseconds in UTC, durations microseconds. One `database/sql` pool with DSN pragmas (WAL, foreign_keys, busy_timeout 5000) plus a write mutex; each migration runs in one transaction with its version record.
 - **Decision:** Credentialed proxies are rejected by the store (`ErrAuthUnsupported`) until encrypted storage lands in Task 2/3; `credential_digest` is reserved for duplicate identity.
 - **Decision:** Default listen address is `127.0.0.1:8080` (safe by default); the container will set it explicitly in Task 10.
@@ -73,6 +73,12 @@
 - **Decision:** Delivery is at-least-once. A new outbox row waits 10 s so nearby changes are grouped; due items are sent as one message per up to 4000 characters, each item exactly one sanitized line (control and invisible formatting characters removed, 400 characters per line). A failing message ends the run: its items are rescheduled after 30/60/120/240 s (Telegram `retry_after` replaces the fixed delay) and the fifth failed attempt is final but stays visible; later messages are untouched. Without a configured token and chat nothing is sent and no attempt is consumed. Shutdown during a send is not a failed attempt.
 - **Decision:** `PUT /api/settings` is partial and validated as a whole (nothing is applied if any field is invalid). Secrets are write-only: omitted keeps, a string replaces, an empty string clears, null is rejected; responses only carry `has_token` and `has_key`. Monitoring schedule changes are applied immediately through the job service. `POST /api/settings/telegram/test` only queues a message and returns its ID; delivery is reported through the delivery summary. `POST /api/settings/speed/resume` clears the speed provider pause.
 - **Decision:** `GET /api/events` is newest first with an opaque `(created_at, id)` cursor, limit 1-200 (default 50), optional `proxy_id` and repeated `kind` filters, and each event carries its delivery state (`none`, `pending`, `delivered`, `failed`).
+
+## 2026-10-20 — Rename to ProxyWard
+
+- **Decision:** The project is ProxyWard. Go module `github.com/thejohnd0e/ProxyWard`, command `cmd/proxyward`, binary and compose service/image/volume `proxyward`, environment variables `PROXYWARD_LISTEN`, `PROXYWARD_DATA_DIR`, `PROXYWARD_SESSION_SECURE`, container user `proxyward`.
+- **Decision:** The cryptographic domain-separation labels ("proxy-checker csrf v1", "proxy-checker credential fingerprint v1") are deliberately unchanged: changing them would invalidate stored credential fingerprints and derived tokens. They are internal constants, not branding.
+- **Note:** Older plan, spec and research files keep the old `proxy-checker` file names and wording as history. Existing deployments (none known) must rename the variables and the volume (`proxy-checker_proxy-checker-data` becomes `proxyward_proxyward-data`) or copy the data over.
 
 ## 2026-10-20 — Task 10 operations
 

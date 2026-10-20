@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func openMigrated(t *testing.T) *Store {

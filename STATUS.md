@@ -11,7 +11,7 @@
   - `internal/store`: `auth.go` (admin hash, sessions, revoke), `settings.go` (settings with a secret flag, `HasEncryptedRecords`).
   - `internal/httpapi`: `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `PUT /api/auth/password`, JSON 404 for unknown `/api/` routes. `internal/apierr` writes the JSON error format.
   - `internal/app`: refuses to create a new key when encrypted records exist and the key is missing; `SetAdminPassword`.
-  - CLI: `proxy-checker admin set-password` reads a prompt (TTY, no echo, confirmed) or the first stdin line; the password is never an argument.
+  - CLI: `proxyward admin set-password` reads a prompt (TTY, no echo, confirmed) or the first stdin line; the password is never an argument.
   - `internal/testkit`: fake clock.
 
 - 2026-10-20 **Task 3: Proxy management and list import**:
@@ -63,7 +63,7 @@
 - Race detector: `-race` cannot run on Windows (no cgo). It was run on the Debian 13 test VM (Go 1.24.4 system package; `GOTOOLCHAIN=auto` fetched 1.27.0 into the user module cache; gcc 14.2). `go test -race -count=1 ./...` and `go vet ./...` passed for all packages, including the key-file 0600 check that Windows skips. The copied tree was removed afterwards. The first race build takes many minutes on that 1-CPU VM; later runs reuse the cache. Docker has still not been exercised.
 - TDD deviation: for Task 2 the implementation files were written before the tests, so the plan's "see FAIL first" step was replaced by mutation checks (above).
 - Edited `001_initial.sql` in place (removed `sessions.csrf_digest`) because no database had been deployed. After the first release, schema changes must be new migrations.
-- Secure cookies are off by default (`PROXY_CHECKER_SESSION_SECURE=false`): plain LAN HTTP; documented in `docs/operations.md`.
+- Secure cookies are off by default (`PROXYWARD_SESSION_SECURE=false`): plain LAN HTTP; documented in `docs/operations.md`.
 - Not verified: real HTTP/HTTPS/SOCKS5 proxies from Debian, real ipapi.is key, real Telegram bot, IPv6 egress, TLS reverse proxy. These need user-supplied credentials.
 - Deleting a proxy removes its job rows by cascade; cancelling a job that is already executing arrives with the job runner (Task 7).
 - Importing from the UI, tags UI and schedule semantics (inheritance from global settings) are not wired yet; global settings API is Task 5/7/8.

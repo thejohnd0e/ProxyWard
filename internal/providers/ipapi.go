@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // IPAPIURL is the ipapi.is endpoint. Lookups are POSTs so the key travels in
@@ -103,7 +103,7 @@ func (g *IPAPI) LookupGeo(ctx context.Context, addr netip.Addr) (domain.Geo, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "proxy-checker")
+	req.Header.Set("User-Agent", "proxyward")
 
 	client := g.Client
 	if client == nil {

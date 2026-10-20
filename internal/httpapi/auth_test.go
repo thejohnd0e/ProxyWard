@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/auth"
-	"proxy-checker/internal/geo"
-	"proxy-checker/internal/jobs"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/geo"
+	"github.com/thejohnd0e/ProxyWard/internal/jobs"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 const (

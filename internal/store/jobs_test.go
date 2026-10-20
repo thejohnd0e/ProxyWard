@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func addProxies(t *testing.T, db *Store, n int) []domain.ProxyID {

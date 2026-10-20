@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 const secretKey = "SECRET-GEO-KEY-123"

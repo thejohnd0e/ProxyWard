@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
 )
 
 func TestPruneDeletesOldHistoryButKeepsTheCurrentState(t *testing.T) {

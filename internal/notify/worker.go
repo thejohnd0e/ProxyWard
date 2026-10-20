@@ -9,8 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // Sender delivers one message to a chat (implemented by *Telegram).

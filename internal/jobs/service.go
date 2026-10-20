@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // DefaultTickEvery is how often schedules are reconciled.

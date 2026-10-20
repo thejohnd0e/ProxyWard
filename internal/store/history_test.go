@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func TestAvailabilityRoundTrip(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 const jobColumns = `id, proxy_id, kind, status, source, due_at, created_at, started_at, finished_at`

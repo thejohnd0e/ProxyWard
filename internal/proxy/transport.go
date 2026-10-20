@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // Stage tells where in the proxy path a failure happened. Failures at these
@@ -205,7 +205,7 @@ func connectTunnel(ctx context.Context, conn net.Conn, target string, creds *dom
 	defer release()
 
 	var req strings.Builder
-	req.WriteString("CONNECT " + target + " HTTP/1.1\r\nHost: " + target + "\r\nUser-Agent: proxy-checker\r\n")
+	req.WriteString("CONNECT " + target + " HTTP/1.1\r\nHost: " + target + "\r\nUser-Agent: proxyward\r\n")
 	if creds != nil {
 		token := base64.StdEncoding.EncodeToString([]byte(creds.Username + ":" + creds.Password))
 		req.WriteString("Proxy-Authorization: Basic " + token + "\r\n")

@@ -1,12 +1,12 @@
-// Command proxy-checker runs the proxy monitoring server.
+// Command proxyward runs the proxy monitoring server.
 //
 // Usage:
 //
-//	proxy-checker                      run the server (same as "serve")
-//	proxy-checker admin set-password   set or reset the administrator password
-//	proxy-checker backup --output F    write a consistent backup archive (safe while running)
-//	proxy-checker restore --input F    restore an archive into the data directory (server stopped)
-//	proxy-checker healthcheck          exit 0 when the local server answers /healthz
+//	proxyward                      run the server (same as "serve")
+//	proxyward admin set-password   set or reset the administrator password
+//	proxyward backup --output F    write a consistent backup archive (safe while running)
+//	proxyward restore --input F    restore an archive into the data directory (server stopped)
+//	proxyward healthcheck          exit 0 when the local server answers /healthz
 package main
 
 import (
@@ -24,9 +24,9 @@ import (
 
 	"golang.org/x/term"
 
-	"proxy-checker/internal/app"
-	"proxy-checker/internal/auth"
-	"proxy-checker/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/app"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
 )
 
 func main() {
@@ -56,7 +56,7 @@ func main() {
 		output := fs.String("output", "", "path of the archive to create (must not exist)")
 		_ = fs.Parse(args[1:])
 		if *output == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy-checker backup --output <file.tar.gz>")
+			fmt.Fprintln(os.Stderr, "usage: proxyward backup --output <file.tar.gz>")
 			os.Exit(2)
 		}
 		if err := app.CreateBackup(ctx, cfg, *output); err != nil {
@@ -70,7 +70,7 @@ func main() {
 		force := fs.Bool("force", false, "replace an existing database")
 		_ = fs.Parse(args[1:])
 		if *input == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy-checker restore --input <file.tar.gz> [--force]   (stop the server first)")
+			fmt.Fprintln(os.Stderr, "usage: proxyward restore --input <file.tar.gz> [--force]   (stop the server first)")
 			os.Exit(2)
 		}
 		if err := app.RestoreBackup(ctx, cfg, *input, *force); err != nil {
@@ -84,7 +84,7 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: proxy-checker [serve | admin set-password | backup --output F | restore --input F [--force] | healthcheck]")
+		fmt.Fprintln(os.Stderr, "usage: proxyward [serve | admin set-password | backup --output F | restore --input F [--force] | healthcheck]")
 		os.Exit(2)
 	}
 }

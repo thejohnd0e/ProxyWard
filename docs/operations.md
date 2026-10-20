@@ -21,8 +21,8 @@ docker compose up -d --build
 Set the administrator password (at least 12 characters; it is never a command argument):
 
 ```sh
-docker compose run --rm proxy-checker admin set-password        # interactive prompt (TTY)
-printf '%s\n' "$PASSWORD" | docker compose run --rm -T proxy-checker admin set-password   # from stdin
+docker compose run --rm proxyward admin set-password        # interactive prompt (TTY)
+printf '%s\n' "$PASSWORD" | docker compose run --rm -T proxyward admin set-password   # from stdin
 ```
 
 Then open `http://LAN_IP:8080/`. Check health with `docker compose ps` (status `healthy`) or `curl http://LAN_IP:8080/healthz`.
@@ -36,7 +36,7 @@ Then open `http://LAN_IP:8080/`. Check health with `docker compose ps` (status `
 
 ## Data and the secrets key
 
-The named volume `proxy-checker-data` is mounted at `/data` and holds:
+The named volume `proxyward-data` is mounted at `/data` and holds:
 
 - `state.db` (SQLite, WAL mode): proxies, history, incidents, settings;
 - `secrets.key` (32 bytes, mode 0600): encrypts proxy passwords, the Telegram bot token and the geolocation key stored in the database.
@@ -50,9 +50,9 @@ The database is useless for stored secrets without the key, and the key is usele
 Backups are consistent while the server runs (`VACUUM INTO` snapshot plus the key, in one `tar.gz` with exactly `state.db` and `secrets.key`). The archive contains the key: store it as carefully as a password.
 
 ```sh
-docker compose exec -T proxy-checker proxy-checker backup --output /data/backup-$(date +%F).tar.gz
-docker cp "$(docker compose ps -q proxy-checker)":/data/backup-$(date +%F).tar.gz .
-docker compose exec -T proxy-checker rm /data/backup-$(date +%F).tar.gz
+docker compose exec -T proxyward proxyward backup --output /data/backup-$(date +%F).tar.gz
+docker cp "$(docker compose ps -q proxyward)":/data/backup-$(date +%F).tar.gz .
+docker compose exec -T proxyward rm /data/backup-$(date +%F).tar.gz
 ```
 
 The command refuses to overwrite an existing file. Backups are never exposed through the web interface.
@@ -63,14 +63,14 @@ Restoring needs the server stopped and replaces the database and key.
 
 ```sh
 docker compose stop
-docker compose run --rm -T proxy-checker restore --input - --force < backup-2026-10-20.tar.gz
+docker compose run --rm -T proxyward restore --input - --force < backup-2026-10-20.tar.gz
 docker compose up -d
 ```
 
 - `--input -` reads the archive from standard input. This avoids permission problems: the container runs as uid 10001, so a root-only (0600) archive mounted with `-v` is unreadable inside it (observed: `permission denied`).
 - `--force` is required when a database already exists. Without it the command refuses.
 - The archive is validated before anything changes: exactly the two expected regular files, a 32-byte key and a database that passes `PRAGMA integrity_check`. Path tricks, extra entries, symlinks and duplicates are rejected.
-- To test a backup without touching production, restore into a disposable project: `PORT=8081 docker compose -p pcrestore run --rm -T proxy-checker restore --input - < backup.tar.gz`, then `docker compose -p pcrestore up -d`, check it, and `docker compose -p pcrestore down -v`.
+- To test a backup without touching production, restore into a disposable project: `PORT=8081 docker compose -p pcrestore run --rm -T proxyward restore --input - < backup.tar.gz`, then `docker compose -p pcrestore up -d`, check it, and `docker compose -p pcrestore down -v`.
 
 ## Upgrade
 
@@ -83,7 +83,7 @@ Database migrations run at startup in a transaction. Take a backup first. The ba
 
 ## Logs, retention and resources
 
-- Logs go to stdout as structured text and are capped by Docker (10 MB x 3 files): `docker compose logs -f proxy-checker`. Credentials and credential-bearing URLs are never logged.
+- Logs go to stdout as structured text and are capped by Docker (10 MB x 3 files): `docker compose logs -f proxyward`. Credentials and credential-bearing URLs are never logged.
 - History older than the retention setting (default 30 days, Settings page) is deleted hourly in batches of 1000. The latest result of each proxy, open incidents and undelivered notifications are never pruned.
 - Observed on the test VM: about 70 MiB RAM idle, image about 148 MB, `docker compose stop` finishes in about 1 second with exit code 0.
 - The container runs as uid 10001 with a read-only root file system, `/tmp` on tmpfs, all capabilities dropped and `no-new-privileges`.

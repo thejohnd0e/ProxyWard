@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/geo"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/geo"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // uptimeWindow is the period the uptime figure covers.

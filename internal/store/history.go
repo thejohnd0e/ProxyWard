@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // AddAvailability stores one availability result. ErrNotFound means the

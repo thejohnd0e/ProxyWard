@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/check"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/notify"
+	"github.com/thejohnd0e/ProxyWard/internal/check"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/notify"
 )
 
 // occupancy records, across both check kinds, how many checks run at once

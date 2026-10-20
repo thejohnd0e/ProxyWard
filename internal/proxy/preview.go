@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // MaxImportLines bounds the number of non-blank lines in one pasted list.

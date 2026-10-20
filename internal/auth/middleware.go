@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // CSRFHeader carries the CSRF token on mutating requests.

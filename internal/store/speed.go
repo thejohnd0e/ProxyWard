@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // AddSpeed stores one speed result. A direction without a completed sample is

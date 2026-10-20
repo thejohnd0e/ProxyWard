@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func TestParseUnauthenticatedIPv6(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // JobQueue is the part of the job service the API needs (*jobs.Queue).

@@ -46,7 +46,7 @@ func (c *Cloudflare) DownloadRequest(ctx context.Context, n int64) (*http.Reques
 		return nil, err
 	}
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("User-Agent", "proxy-checker")
+	req.Header.Set("User-Agent", "proxyward")
 	return req, nil
 }
 
@@ -58,7 +58,7 @@ func (c *Cloudflare) UploadRequest(ctx context.Context, body io.Reader, n int64)
 	}
 	req.ContentLength = n
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("User-Agent", "proxy-checker")
+	req.Header.Set("User-Agent", "proxyward")
 	return req, nil
 }
 

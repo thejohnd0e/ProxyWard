@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/app"
-	"proxy-checker/internal/config"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/app"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 const (

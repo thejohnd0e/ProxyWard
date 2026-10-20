@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func f64(v float64) *float64 { return &v }

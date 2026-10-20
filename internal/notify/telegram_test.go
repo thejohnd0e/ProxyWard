@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 const (

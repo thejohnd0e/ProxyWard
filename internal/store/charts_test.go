@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 func seedHistory(t *testing.T, db *Store, id domain.ProxyID) {

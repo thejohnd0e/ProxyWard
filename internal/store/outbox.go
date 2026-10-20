@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
 // MaxOutboxAttempts is the number of delivery attempts before a notification

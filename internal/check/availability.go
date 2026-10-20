@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
 )
 
 // Checker runs availability checks. It has no way to reach a provider

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
-const KEY = 'proxy-checker.theme';
+const KEY = 'proxyward.theme';
 
 function read(): ThemeChoice {
   try {

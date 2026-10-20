@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/config"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 func TestHealthzReflectsDatabase(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // Status describes how trustworthy a GeoView is.

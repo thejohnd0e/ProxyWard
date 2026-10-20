@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/auth"
-	"proxy-checker/internal/config"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 func openStore(t *testing.T, dir string) *store.Store {

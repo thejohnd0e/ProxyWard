@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/proxy"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/proxy"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // maxProxyBodyBytes caps proxy and import request bodies.

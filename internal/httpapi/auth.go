@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/auth"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 type loginRequest struct {

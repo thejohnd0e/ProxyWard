@@ -8,11 +8,11 @@ import (
 	"time"
 	"unicode"
 
-	"proxy-checker/internal/apierr"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/notify"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/apierr"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/notify"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // geoDailyLimit mirrors geo.DefaultDailyLimit for display.

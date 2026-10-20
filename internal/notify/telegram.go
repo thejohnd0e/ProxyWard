@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"proxy-checker/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
 )
 
 // TelegramURL is the Bot API base URL.
@@ -126,7 +126,7 @@ func (t *Telegram) Send(ctx context.Context, chatID, text string) error {
 		return fail("network")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "proxy-checker")
+	req.Header.Set("User-Agent", "proxyward")
 	client := t.Client
 	if client == nil {
 		client = NewTelegram(nil).Client

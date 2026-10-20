@@ -102,7 +102,7 @@ func (p *provider) Lookup(ctx context.Context, client *http.Client) (netip.Addr,
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("%s: build request: %w", p.name, err)
 	}
-	req.Header.Set("User-Agent", "proxy-checker")
+	req.Header.Set("User-Agent", "proxyward")
 	req.Header.Set("Accept", "application/json, text/plain")
 	resp, err := client.Do(req)
 	if err != nil {

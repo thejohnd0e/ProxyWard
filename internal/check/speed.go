@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // LowConfidenceBelow is the sample duration under which a rate is flagged as

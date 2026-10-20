@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/providers"
-	"proxy-checker/internal/proxy"
-	"proxy-checker/internal/testkit"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/providers"
+	"github.com/thejohnd0e/ProxyWard/internal/proxy"
+	"github.com/thejohnd0e/ProxyWard/internal/testkit"
 )
 
 // rig runs the checker against fixture services through a fixture proxy.

@@ -4,8 +4,8 @@ package notify
 import (
 	"context"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // IncidentTracker turns availability results into down and recovery events.

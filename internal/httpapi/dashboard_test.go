@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/geo"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/geo"
 )
 
 type fakePeek struct {

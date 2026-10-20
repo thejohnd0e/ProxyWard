@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"proxy-checker/internal/config"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 // seed creates a data directory with an encrypted proxy password and returns its config.

@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"proxy-checker/internal/config"
-	"proxy-checker/internal/domain"
-	"proxy-checker/internal/secrets"
-	"proxy-checker/internal/store"
+	"github.com/thejohnd0e/ProxyWard/internal/config"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/secrets"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
 )
 
 const (
@@ -120,7 +120,7 @@ func writeArchive(w io.Writer, snapshot string, key []byte) error {
 // input "-" reads the archive from standard input, which avoids file
 // permission problems when restoring inside a container:
 //
-//	docker compose run --rm -T proxy-checker restore --input - < backup.tar.gz
+//	docker compose run --rm -T proxyward restore --input - < backup.tar.gz
 func RestoreBackup(ctx context.Context, cfg config.Config, input string, force bool) error {
 	if input == "-" {
 		return RestoreBackupFrom(ctx, cfg, os.Stdin, force)

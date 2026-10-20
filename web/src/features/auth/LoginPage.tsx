@@ -7,7 +7,7 @@ function describe(err: unknown): string {
     if (err.code === 'invalid_credentials') return 'The password is not correct.';
     if (err.code === 'rate_limited') return 'Too many attempts. Wait a minute and try again.';
     if (err.code === 'not_initialized') {
-      return 'No administrator password is set yet. Run "proxy-checker admin set-password" on the server first.';
+      return 'No administrator password is set yet. Run "proxyward admin set-password" on the server first.';
     }
     return err.message;
   }
