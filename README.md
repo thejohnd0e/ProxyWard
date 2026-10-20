@@ -106,3 +106,7 @@ See [AGENTS.md](AGENTS.md) for shared coding-agent instructions. Current project
 - [Public-service verification](docs/research/2026-10-19-public-services.md)
 
 All project content is English-only. Development conversations with agents are in Russian.
+
+## License
+
+[MIT](LICENSE). Third-party notices: [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
