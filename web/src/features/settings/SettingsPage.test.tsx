@@ -216,6 +216,7 @@ describe('SettingsPage location key help', () => {
     mount();
     const region = await screen.findByRole('region', { name: 'Location lookup' });
     expect(within(region).getByText(/create a free account/i)).toBeInTheDocument();
+    expect(within(region).getByText(/refused from a VPN/i)).toBeInTheDocument();
     expect(within(region).getByRole('link', { name: 'ipapi.is' })).toHaveAttribute('href', 'https://ipapi.is/');
     expect(within(region).getByRole('link', { name: 'documentation' })).toHaveAttribute('href', 'https://ipapi.is/developers.html');
   });

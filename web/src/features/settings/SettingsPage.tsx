@@ -283,7 +283,7 @@ function GeoCard({ settings, onSaved }: { settings: SettingsView; onSaved: (s: S
         <a href="https://ipapi.is/developers.html" target="_blank" rel="noopener noreferrer">
           documentation
         </a>
-        .
+        . Sign-up is refused from a VPN, proxy or corporate network, so register from your normal home connection (GitHub and Google sign-in also work).
       </p>
       <p className="muted">
         Used today: {g.used_today} of {g.daily_limit} lookups.
