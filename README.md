@@ -1,5 +1,14 @@
 # ProxyWard
 
+[![License: MIT](https://img.shields.io/github/license/thejohnd0e/ProxyWard)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![Proxies](https://img.shields.io/badge/proxies-HTTP%20%7C%20HTTPS%20%7C%20SOCKS5-informational)
+[![Last commit](https://img.shields.io/github/last-commit/thejohnd0e/ProxyWard)](https://github.com/thejohnd0e/ProxyWard/commits/master)
+
 Self-hosted monitor for up to 100 HTTP, HTTPS and SOCKS5 proxies on your local network, with or without authentication.
 
 ## Overview
