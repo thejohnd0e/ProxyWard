@@ -18,11 +18,11 @@ type Checker struct {
 	Clock     domain.Clock
 }
 
-// NewChecker returns a Checker using the production providers (ipify, then
-// AWS checkip) and the wall clock.
+// NewChecker returns a Checker using the production providers (IPv4 ipify, then
+// AWS checkip, then dual-stack ipify) and the wall clock.
 func NewChecker() *Checker {
 	return &Checker{
-		Providers: []providers.IPProvider{providers.DefaultIPify(), providers.DefaultAWS()},
+		Providers: []providers.IPProvider{providers.DefaultIPify(), providers.DefaultAWS(), providers.DefaultIPifyDual()},
 		Clock:     domain.SystemClock{},
 	}
 }

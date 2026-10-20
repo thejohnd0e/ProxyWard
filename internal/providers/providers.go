@@ -15,8 +15,13 @@ import (
 
 // Default endpoints (verified in docs/research/2026-10-19-public-services.md).
 const (
-	IPifyURL = "https://api64.ipify.org?format=json"
+	// IPifyURL and AWSURL are IPv4-only hosts, so the exit address is an IPv4
+	// one whenever the proxy has any.
+	IPifyURL = "https://api.ipify.org?format=json"
 	AWSURL   = "https://checkip.amazonaws.com/"
+	// IPifyDualURL answers over IPv6 when the proxy prefers it. It is the last
+	// resort, for proxies that can only reach the internet over IPv6.
+	IPifyDualURL = "https://api64.ipify.org?format=json"
 )
 
 // maxBodyBytes caps the response body read from IP providers.
@@ -89,6 +94,11 @@ func NewAWS(url string) IPProvider { return &provider{name: "aws", url: url, par
 
 // DefaultIPify uses the production ipify endpoint.
 func DefaultIPify() IPProvider { return NewIPify(IPifyURL) }
+
+// DefaultIPifyDual uses the dual-stack ipify endpoint.
+func DefaultIPifyDual() IPProvider {
+	return &provider{name: "ipify-dual", url: IPifyDualURL, parse: parseIPify}
+}
 
 // DefaultAWS uses the production AWS checkip endpoint.
 func DefaultAWS() IPProvider { return NewAWS(AWSURL) }

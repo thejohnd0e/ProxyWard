@@ -93,19 +93,44 @@ describe('ProxyPage', () => {
     expect(screen.getByText('No proxy matches these filters.')).toBeInTheDocument();
   });
 
-  it('sorts by state with problems first', async () => {
+  const names = () => screen.getAllByRole('link').filter((a) => a.className === 'proxy-name').map((a) => a.textContent);
+  const header = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) });
+
+  it('sorts by a column header, ascending first and descending on the second click', async () => {
+    const user = mount();
+    await screen.findByRole('link', { name: 'Alpha' });
+    expect(names()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+    expect(header('Proxy').closest('th')).toHaveAttribute('aria-sort', 'ascending');
+    await user.click(header('Proxy'));
+    expect(names()).toEqual(['Charlie', 'Bravo', 'Alpha']);
+    expect(header('Proxy').closest('th')).toHaveAttribute('aria-sort', 'descending');
+    await user.click(header('Status'));
+    expect(names()).toEqual(['Bravo', 'Charlie', 'Alpha']);
+    expect(header('Status').closest('th')).toHaveAttribute('aria-sort', 'ascending');
+    expect(header('Proxy').closest('th')).not.toHaveAttribute('aria-sort');
+    await user.click(header('Status'));
+    expect(names()).toEqual(['Alpha', 'Charlie', 'Bravo']);
+  });
+
+  it('offers the same sorting as a list and a direction button on narrow screens', async () => {
     const user = mount();
     await screen.findByRole('link', { name: 'Alpha' });
     await user.selectOptions(screen.getByLabelText('Sort by'), 'status');
-    const names = screen.getAllByRole('link').filter((a) => a.className === 'proxy-name').map((a) => a.textContent);
-    expect(names).toEqual(['Bravo', 'Charlie', 'Alpha']);
+    expect(names()).toEqual(['Bravo', 'Charlie', 'Alpha']);
+    await user.click(screen.getByRole('button', { name: /Ascending order/ }));
+    expect(names()).toEqual(['Alpha', 'Charlie', 'Bravo']);
   });
+
+  const menu = async (user: ReturnType<typeof mount>, proxy: string, item: 'Edit' | 'Delete') => {
+    await user.click(screen.getByRole('button', { name: `More actions for ${proxy}` }));
+    await user.click(screen.getByRole('menuitem', { name: item }));
+  };
 
   it('asks before deleting and then deletes', async () => {
     e.deleteProxy.mockResolvedValue(undefined);
     const user = mount();
     await screen.findByRole('link', { name: 'Alpha' });
-    await user.click(screen.getByRole('button', { name: 'Delete Bravo' }));
+    await menu(user, 'Bravo', 'Delete');
     const dialog = screen.getByRole('dialog', { name: 'Delete proxy' });
     expect(dialog).toHaveTextContent('Delete "Bravo"?');
     expect(e.deleteProxy).not.toHaveBeenCalled();
@@ -117,7 +142,7 @@ describe('ProxyPage', () => {
   it('does not delete when the confirmation is cancelled', async () => {
     const user = mount();
     await screen.findByRole('link', { name: 'Alpha' });
-    await user.click(screen.getByRole('button', { name: 'Delete Bravo' }));
+    await menu(user, 'Bravo', 'Delete');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(e.deleteProxy).not.toHaveBeenCalled();
   });
@@ -158,7 +183,7 @@ describe('ProxyPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add proxy' }));
     expect(screen.getByRole('dialog', { name: 'Add proxy' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
-    await user.click(screen.getByRole('button', { name: 'Edit Alpha' }));
+    await menu(user, 'Alpha', 'Edit');
     expect(screen.getByRole('dialog', { name: 'Edit proxy' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Import list' }));

@@ -184,6 +184,10 @@ func TestNames(t *testing.T) {
 	if DefaultIPify().Name() != "ipify" || DefaultAWS().Name() != "aws" {
 		t.Fatal("unexpected default provider names")
 	}
+	// The first two must be IPv4-only hosts, so a proxy with both families shows IPv4.
+	if strings.Contains(IPifyURL, "api64") || strings.Contains(AWSURL, "api64") || !strings.Contains(IPifyDualURL, "api64") || DefaultIPifyDual().Name() != "ipify-dual" {
+		t.Fatal("exit address must be IPv4 first, dual-stack last")
+	}
 }
 
 func TestParseRetryAfter(t *testing.T) {

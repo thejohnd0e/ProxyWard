@@ -46,7 +46,8 @@ func GeoSources() []GeoSource {
 }
 
 // Lookup asks the source through client, which must route through the proxy
-// whose exit address is want. A reply about any other address is rejected.
+// whose exit address is want. A reply about another address of the same family
+// is rejected.
 // Errors never contain response bodies.
 func (g GeoSource) Lookup(ctx context.Context, client *http.Client, want netip.Addr) (domain.Geo, error) {
 	want = want.Unmap()
@@ -91,6 +92,18 @@ func (g GeoSource) Lookup(ctx context.Context, client *http.Client, want netip.A
 	return geo, nil
 }
 
+// sameExit reports whether a reply's address belongs to the exit that was
+// observed. A dual-stack proxy can show an IPv4 address to one service and an
+// IPv6 address to another; the request still went through that proxy, so a
+// public address of the other family is accepted. Two addresses of one family
+// must be equal.
+func sameExit(got, want netip.Addr) bool {
+	if got == want {
+		return true
+	}
+	return got.Is4() != want.Is4() && IsPublic(got)
+}
+
 var asnText = regexp.MustCompile(`(?i)^AS(\d+)\s*(.*)$`)
 
 // ParseSelfGeo reads the reply of any supported source. The services name
@@ -106,7 +119,7 @@ func ParseSelfGeo(body []byte, want netip.Addr) (domain.Geo, error) {
 		return domain.Geo{}, errors.New("the service reported a failure")
 	}
 	got, err := netip.ParseAddr(strings.TrimSpace(str(m["ip"])))
-	if err != nil || got.Unmap() != want {
+	if err != nil || !sameExit(got.Unmap(), want) {
 		return domain.Geo{}, errors.New("response is for a different address")
 	}
 	g := domain.Geo{IP: want.String()}

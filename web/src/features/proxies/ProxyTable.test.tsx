@@ -14,22 +14,34 @@ function setup(proxies: Proxy[], opts: { geoConfigured?: boolean; selected?: num
     onEdit: vi.fn(),
     onDelete: vi.fn(),
   };
+  const onSort = vi.fn();
   render(
     <MemoryRouter>
       <ProxyTable
         proxies={proxies}
         geoConfigured={opts.geoConfigured ?? true}
+        sort={{ key: 'name', dir: 'asc' }}
+        onSort={onSort}
         selected={new Set(opts.selected ?? [])}
         {...handlers}
       />
     </MemoryRouter>,
   );
-  return { ...handlers, user: userEvent.setup() };
+  return { ...handlers, onSort, user: userEvent.setup() };
 }
 
 const row = (name: string) => screen.getByRole('row', { name: new RegExp(name) });
 
 describe('ProxyTable', () => {
+  it('has a sort button in every data column header and none for the actions', async () => {
+    const { user, onSort } = setup([makeProxy({ name: 'Solo' })]);
+    for (const [label, key] of [['Proxy', 'name'], ['Status', 'status'], ['Exit IP', 'exit_ip'], ['Location', 'location'], ['Network', 'network'], ['Latency', 'latency'], ['Speed', 'speed'], ['Uptime, 24 h', 'uptime']] as const) {
+      await user.click(screen.getByRole('button', { name: new RegExp(`^${label}`) }));
+      expect(onSort).toHaveBeenLastCalledWith(key);
+    }
+    expect(screen.getByRole('columnheader', { name: 'Actions' }).querySelector('button')).toBeNull();
+  });
+
   it('shows an unchecked proxy as Unknown with dashes, not as down or zero', () => {
     setup([makeProxy({ name: 'Fresh' })]);
     const r = row('Fresh');
@@ -147,9 +159,16 @@ describe('ProxyTable', () => {
     expect(onCheck).toHaveBeenCalledWith('availability', 9);
     await user.click(screen.getByRole('button', { name: 'Test speed of Target' }));
     expect(onCheck).toHaveBeenCalledWith('speed', 9);
-    await user.click(screen.getByRole('button', { name: 'Edit Target' }));
+    expect(screen.queryByRole('button', { name: 'Edit Target' })).not.toBeInTheDocument();
+    const more = screen.getByRole('button', { name: 'More actions for Target' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    await user.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('menuitem', { name: 'Edit' }));
     expect(onEdit).toHaveBeenCalledWith(proxy);
-    await user.click(screen.getByRole('button', { name: 'Delete Target' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(more);
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(onDelete).toHaveBeenCalledWith(proxy);
     await user.click(screen.getByRole('checkbox', { name: 'Select Target' }));
     expect(onToggle).toHaveBeenCalledWith(9, true);

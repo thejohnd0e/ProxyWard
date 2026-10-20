@@ -36,7 +36,7 @@ const shutdownTimeout = 10 * time.Second
 // Options replaces production dependencies. The zero value uses the real
 // public services; the end-to-end test server substitutes local fixtures.
 type Options struct {
-	IPProviders  []providers.IPProvider // default: ipify, then AWS checkip
+	IPProviders  []providers.IPProvider // default: ipify, AWS checkip, dual-stack ipify
 	SpeedService *providers.Cloudflare  // default: Cloudflare
 	GeoSources   []providers.GeoSource  // default: the built-in keyless sources
 	TelegramURL  string                 // default: api.telegram.org

@@ -175,9 +175,10 @@ test('shows history and charts on the detail page', async ({}, info) => {
 
 test('edits a proxy without exposing or losing its password', async () => {
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
-  await page.getByRole('button', { name: /^Edit 127\.0\.0\.1:/ }).nth(0).waitFor();
+  await page.getByRole('button', { name: /^More actions for 127\.0\.0\.1:/ }).nth(0).waitFor();
   const berlin = fx.proxies[1]!;
-  await page.getByRole('button', { name: `Edit 127.0.0.1:${berlin.port}` }).click();
+  await page.getByRole('button', { name: `More actions for 127.0.0.1:${berlin.port}` }).click();
+  await page.getByRole('menuitem', { name: 'Edit' }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit proxy' });
   await expect(dialog.getByLabel('Username')).toHaveValue(berlin.username!);
   await expect(dialog.getByLabel('Password', { exact: true })).toHaveValue('');
@@ -201,13 +202,28 @@ test('light and dark themes both render the dashboard', async ({}, info) => {
   await setTheme(page, 'System');
 });
 
+test('sorts by a clicked column header in both directions', async () => {
+  await page.getByRole('link', { name: 'Proxies', exact: true }).click();
+  const names = () => page.locator('.proxy-table tbody .proxy-name').allTextContents();
+  await expect(page.locator('.proxy-table tbody tr')).toHaveCount(5);
+  const asc = await names();
+  expect(asc).toEqual([...asc].sort((x, y) => x.localeCompare(y, 'en', { numeric: true })));
+  await page.getByRole('button', { name: /^Proxy/ }).click();
+  await expect(page.getByRole('columnheader', { name: /^Proxy/ })).toHaveAttribute('aria-sort', 'descending');
+  expect(await names()).toEqual([...asc].reverse());
+  await page.getByRole('button', { name: /^Proxy/ }).click();
+  expect(await names()).toEqual(asc);
+});
+
 test('deleting a proxy asks first and removes it', async () => {
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
   const dead = `127.0.0.1:${fx.proxies[4]!.port}`;
-  await page.getByRole('button', { name: `Delete ${dead}` }).click();
+  await page.getByRole('button', { name: `More actions for ${dead}` }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
   await page.getByRole('dialog', { name: 'Delete proxy' }).getByRole('button', { name: 'Cancel' }).click();
   await expect(row(dead)).toBeVisible();
-  await page.getByRole('button', { name: `Delete ${dead}` }).click();
+  await page.getByRole('button', { name: `More actions for ${dead}` }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
   await page.getByRole('dialog', { name: 'Delete proxy' }).getByRole('button', { name: 'Delete proxy' }).click();
   await expect(row(dead)).toHaveCount(0);
 });

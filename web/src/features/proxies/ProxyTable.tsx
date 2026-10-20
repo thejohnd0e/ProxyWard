@@ -3,12 +3,16 @@ import type { ActiveJob, CheckKind, Proxy } from '../../api/types';
 import { Flag } from '../../components/Flag';
 import { SpeedValue } from '../../components/SpeedValue';
 import { StatusBadge } from '../../components/StatusBadge';
+import { RowMenu } from './RowMenu';
+import type { Sort, SortKey } from './sort';
 import { formatDateTime, formatDuration, formatPercent, formatRelative } from '../../lib/format';
 
 interface Props {
   proxies: Proxy[];
   /** False when location lookups are switched off in the settings; the location then reads "Off". */
   geoConfigured: boolean;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
   selected: Set<number>;
   onToggle: (id: number, on: boolean) => void;
   onToggleAll: (on: boolean) => void;
@@ -65,7 +69,21 @@ function CheckButton({ proxy, kind, onCheck }: { proxy: Proxy; kind: CheckKind; 
   );
 }
 
-export function ProxyTable({ proxies, geoConfigured, selected, onToggle, onToggleAll, onCheck, onEdit, onDelete }: Props) {
+function SortHeader({ label, column, sort, onSort }: { label: string; column: SortKey; sort: Sort; onSort: (key: SortKey) => void }) {
+  const active = sort.key === column;
+  return (
+    <th scope="col" aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+      <button type="button" className="th-sort" onClick={() => onSort(column)}>
+        {label}
+        <span className="th-sort__mark" aria-hidden="true">
+          {active ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
+        </span>
+      </button>
+    </th>
+  );
+}
+
+export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onToggle, onToggleAll, onCheck, onEdit, onDelete }: Props) {
   if (proxies.length === 0) {
     return (
       <div className="empty">
@@ -84,14 +102,14 @@ export function ProxyTable({ proxies, geoConfigured, selected, onToggle, onToggl
             <th scope="col" className="col-select">
               <input type="checkbox" aria-label="Select all proxies" checked={all} onChange={(e) => onToggleAll(e.target.checked)} />
             </th>
-            <th scope="col">Proxy</th>
-            <th scope="col">Status</th>
-            <th scope="col">Exit IP</th>
-            <th scope="col">Location</th>
-            <th scope="col">Network</th>
-            <th scope="col">Latency</th>
-            <th scope="col">Speed</th>
-            <th scope="col">Uptime, 24 h</th>
+            <SortHeader label="Proxy" column="name" sort={sort} onSort={onSort} />
+            <SortHeader label="Status" column="status" sort={sort} onSort={onSort} />
+            <SortHeader label="Exit IP" column="exit_ip" sort={sort} onSort={onSort} />
+            <SortHeader label="Location" column="location" sort={sort} onSort={onSort} />
+            <SortHeader label="Network" column="network" sort={sort} onSort={onSort} />
+            <SortHeader label="Latency" column="latency" sort={sort} onSort={onSort} />
+            <SortHeader label="Speed" column="speed" sort={sort} onSort={onSort} />
+            <SortHeader label="Uptime, 24 h" column="uptime" sort={sort} onSort={onSort} />
             <th scope="col" className="col-actions">
               Actions
             </th>
@@ -169,12 +187,7 @@ export function ProxyTable({ proxies, geoConfigured, selected, onToggle, onToggl
                 <div className="actions">
                   <CheckButton proxy={p} kind="availability" onCheck={onCheck} />
                   <CheckButton proxy={p} kind="speed" onCheck={onCheck} />
-                  <button type="button" className="button button--small" aria-label={`Edit ${p.name}`} onClick={() => onEdit(p)}>
-                    Edit
-                  </button>
-                  <button type="button" className="button button--small button--danger" aria-label={`Delete ${p.name}`} onClick={() => onDelete(p)}>
-                    Delete
-                  </button>
+                  <RowMenu name={p.name} onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} />
                 </div>
               </td>
             </tr>

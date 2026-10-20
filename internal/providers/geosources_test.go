@@ -69,6 +69,19 @@ func TestReplyAboutAnotherAddressIsRejected(t *testing.T) {
 	}
 }
 
+func TestDualStackReplyOfTheOtherFamilyIsAccepted(t *testing.T) {
+	g, err := ParseSelfGeo([]byte(`{"ip":"2a09:bac5:5166:505::80:187","country_code":"RU","city":"St Petersburg"}`), netip.MustParseAddr("104.28.196.105"))
+	if err != nil || g.IP != "104.28.196.105" || g.CountryCode != "RU" {
+		t.Fatalf("%+v %v", g, err)
+	}
+	if _, err := ParseSelfGeo([]byte(`{"ip":"fd00::1","country_code":"RU"}`), exitIP); err == nil {
+		t.Error("a private address of the other family was accepted")
+	}
+	if _, err := ParseSelfGeo([]byte(`{"ip":"198.51.100.1","country_code":"RU"}`), exitIP); err == nil {
+		t.Error("another IPv4 address was accepted")
+	}
+}
+
 func TestMissingFieldsStayEmptyInsteadOfInvented(t *testing.T) {
 	g, err := ParseSelfGeo([]byte(`{"ip":"194.50.111.34","country_code":"us"}`), exitIP)
 	if err != nil || g.CountryCode != "US" || g.City != "" || g.ASN != nil || g.Organization != "" || g.Country != "" {

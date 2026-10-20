@@ -7,33 +7,14 @@ import { useVisiblePolling } from '../../lib/useVisiblePolling';
 import { ImportDialog } from './ImportDialog';
 import { ProxyDialog } from './ProxyDialog';
 import { ProxyTable } from './ProxyTable';
+import { compareProxies, nextSort, SORT_LABELS, type Sort, type SortKey } from './sort';
 
 type Dialog = { type: 'add' } | { type: 'import' } | { type: 'edit'; proxy: Proxy } | { type: 'delete'; proxies: Proxy[] } | null;
 type StateFilter = 'all' | State;
-type SortKey = 'name' | 'status' | 'latency' | 'download' | 'uptime';
-
-const STATE_ORDER: Record<State, number> = { down: 0, indeterminate: 1, unknown: 2, up: 3 };
-
 function matches(p: Proxy, q: string): boolean {
   if (q === '') return true;
   const hay = [p.name, p.host, p.tags.join(' '), p.status.exit_ip, p.geo?.country ?? '', p.geo?.city ?? '', p.geo?.organization ?? ''].join(' ').toLowerCase();
   return hay.includes(q);
-}
-
-function compare(a: Proxy, b: Proxy, key: SortKey): number {
-  const byName = a.name.localeCompare(b.name, 'en');
-  switch (key) {
-    case 'status':
-      return STATE_ORDER[a.status.state] - STATE_ORDER[b.status.state] || byName;
-    case 'latency':
-      return (a.status.duration_ms ?? Infinity) - (b.status.duration_ms ?? Infinity) || byName;
-    case 'download':
-      return (b.speed?.download.mbps ?? -1) - (a.speed?.download.mbps ?? -1) || byName;
-    case 'uptime':
-      return (b.uptime.percent ?? -1) - (a.uptime.percent ?? -1) || byName;
-    default:
-      return byName;
-  }
 }
 
 function errorText(err: unknown): string {
@@ -46,7 +27,7 @@ export function ProxyPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
-  const [sort, setSort] = useState<SortKey>('name');
+  const [sort, setSort] = useState<Sort>({ key: 'name', dir: 'asc' });
   const [dialog, setDialog] = useState<Dialog>(null);
   const [notice, setNotice] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
@@ -74,7 +55,7 @@ export function ProxyPage() {
     const q = search.trim().toLowerCase();
     return proxies
       .filter((p) => (stateFilter === 'all' || p.status.state === stateFilter) && matches(p, q))
-      .sort((a, b) => compare(a, b, sort));
+      .sort((a, b) => compareProxies(a, b, sort));
   }, [proxies, search, stateFilter, sort]);
 
   const counts = useMemo(() => {
@@ -167,17 +148,25 @@ export function ProxyPage() {
             <option value="unknown">Unknown</option>
           </select>
         </div>
-        <div className="field">
+        <div className="field field--sort">
           <label htmlFor="proxy-sort" className="visually-hidden">
             Sort by
           </label>
-          <select id="proxy-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-            <option value="name">Sort by name</option>
-            <option value="status">Sort by state</option>
-            <option value="latency">Sort by latency</option>
-            <option value="download">Sort by download speed</option>
-            <option value="uptime">Sort by uptime</option>
+          <select id="proxy-sort" value={sort.key} onChange={(e) => setSort({ key: e.target.value as SortKey, dir: sort.dir })}>
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+              <option key={k} value={k}>
+                Sort by {SORT_LABELS[k].toLowerCase()}
+              </option>
+            ))}
           </select>
+          <button
+            type="button"
+            className="button"
+            aria-label={sort.dir === 'asc' ? 'Ascending order, switch to descending' : 'Descending order, switch to ascending'}
+            onClick={() => setSort({ key: sort.key, dir: sort.dir === 'asc' ? 'desc' : 'asc' })}
+          >
+            <span aria-hidden="true">{sort.dir === 'asc' ? '▲' : '▼'}</span>
+          </button>
         </div>
       </div>
 
@@ -204,6 +193,8 @@ export function ProxyPage() {
         <ProxyTable
           proxies={visible}
           geoConfigured={data?.geo_configured ?? false}
+          sort={sort}
+          onSort={(key) => setSort((cur) => nextSort(cur, key))}
           selected={selected}
           onToggle={toggle}
           onToggleAll={toggleAll}
