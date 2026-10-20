@@ -39,7 +39,7 @@ docker compose run --rm -T proxyward restore --input - --force < backup.tar.gz  
 
 ## Status
 
-Backend, web interface, container, backups and retention are implemented and tested locally and on a Debian test VM. Not yet verified with real services: monitoring of real proxies from Debian, a live ipapi.is key, a live Telegram bot and IPv6 egress. See [STATUS.md](STATUS.md).
+Backend, web interface, container, backups and retention are implemented and tested locally and on a Debian test VM. Not yet verified with real services: monitoring of real proxies from Debian, a live ipapi.is key, a live Telegram bot and IPv6 egress.
 
 ## Develop from source
 
@@ -99,13 +99,9 @@ The stand needs Go on the PATH. Its admin password is printed by `http://127.0.0
 
 ## Development notes
 
-See [AGENTS.md](AGENTS.md) for shared coding-agent instructions. Current project status, decisions, and pending work are tracked in [STATUS.md](STATUS.md), [DECISIONS.md](DECISIONS.md), and [TODO.md](TODO.md).
-
-- [Design specification](docs/superpowers/specs/2026-10-19-proxyward-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-10-19-proxyward.md)
+- [Design specification](docs/superpowers/specs/2026-10-19-proxy-checker-design.md)
+- [Implementation plan](docs/superpowers/plans/2026-10-19-proxy-checker.md)
 - [Public-service verification](docs/research/2026-10-19-public-services.md)
-
-All project content is English-only. Development conversations with agents are in Russian.
 
 ## License
 

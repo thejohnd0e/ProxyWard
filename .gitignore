@@ -38,3 +38,10 @@ node_modules/
 /.omo/
 /.claude/
 .claude/settings.local.json
+
+# Agent handoff and project-tracking notes (kept locally, not published)
+/AGENTS.md
+/CLAUDE.md
+/DECISIONS.md
+/STATUS.md
+/TODO.md
