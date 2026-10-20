@@ -30,12 +30,12 @@ Requirements: Docker Engine with the Compose plugin, and a LAN address on the ho
 ```text
 git clone https://github.com/thejohnd0e/ProxyWard.git
 cd ProxyWard
-cp .env.example .env                                        # set LAN_IP to this host's LAN address
+cp .env.example .env                                        # set LAN_IP (and PORT if 8080 is taken)
 docker compose up -d --build
 docker compose run --rm proxyward admin set-password    # at least 12 characters
 ```
 
-Open `http://LAN_IP:8080/` and sign in. The port is published only on `LAN_IP`. The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
+Open `http://LAN_IP:PORT/` (default `http://LAN_IP:8080/`) and sign in. The host port is set by `PORT` in `.env` (default 8080); pick another one if 8080 is already in use on the host (`ss -ltn | grep :8080` shows whether it is). The port is published only on `LAN_IP`. The interface is plain HTTP, so keep it on a trusted network or behind a TLS reverse proxy (`SESSION_SECURE=true`). Backup, restore, upgrade, firewall notes and verification status are in [docs/operations.md](docs/operations.md).
 
 Docker, backup and restore commands:
 

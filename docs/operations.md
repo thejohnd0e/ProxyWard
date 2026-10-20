@@ -12,11 +12,11 @@ How to run, back up, restore and upgrade Proxy Checker in Docker on a Debian hos
 
 ```sh
 cp .env.example .env
-# edit .env: set LAN_IP to this host's LAN address
+# edit .env: set LAN_IP to this host's LAN address, and PORT if 8080 is already used
 docker compose up -d --build
 ```
 
-`LAN_IP` is required. Compose publishes the port only on that address (`LAN_IP:8080`), never on `0.0.0.0`. Without it `docker compose` stops with an explicit error.
+`PORT` (default 8080) is the host port and can be changed freely; check what is taken with `ss -ltn`. The port inside the container stays 8080, so the health check is unaffected. `LAN_IP` is required. Compose publishes the port only on that address (`LAN_IP:8080`), never on `0.0.0.0`. Without it `docker compose` stops with an explicit error.
 
 Set the administrator password (at least 12 characters; it is never a command argument):
 
@@ -25,7 +25,7 @@ docker compose run --rm proxyward admin set-password        # interactive prompt
 printf '%s\n' "$PASSWORD" | docker compose run --rm -T proxyward admin set-password   # from stdin
 ```
 
-Then open `http://LAN_IP:8080/`. Check health with `docker compose ps` (status `healthy`) or `curl http://LAN_IP:8080/healthz`.
+Then open `http://LAN_IP:PORT/`. Check health with `docker compose ps` (status `healthy`) or `curl http://LAN_IP:PORT/healthz`.
 
 ## Network exposure
 
