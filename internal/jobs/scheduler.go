@@ -86,7 +86,7 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 			}
 			eff := domain.EffectiveSchedule(globalOf(settings, kind), scheduleOf(st, kind))
 			next := nextOf(st, kind)
-			if !eff.Enabled {
+			if st.MonitoringPaused || !eff.Enabled {
 				if next != nil {
 					if err := s.Store.SetNextRun(ctx, st.ProxyID, kind, nil); err != nil && err != store.ErrNotFound {
 						return err
@@ -138,7 +138,7 @@ func (s *Scheduler) Completed(ctx context.Context, id domain.ProxyID, kind domai
 			continue
 		}
 		eff := domain.EffectiveSchedule(globalOf(settings, kind), scheduleOf(st, kind))
-		if !eff.Enabled {
+		if st.MonitoringPaused || !eff.Enabled {
 			return s.Store.SetNextRun(ctx, id, kind, nil)
 		}
 		next := now.Add(eff.Interval)

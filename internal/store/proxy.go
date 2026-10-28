@@ -187,7 +187,7 @@ func scheduleColumns(sch *domain.Schedule) (enabled, interval any, err error) {
 }
 
 const proxyColumns = `id, name, protocol, host, port, tags, auth_enabled, username, password_enc,
-	availability_enabled, availability_interval_s, speed_enabled, speed_interval_s`
+	availability_enabled, availability_interval_s, speed_enabled, speed_interval_s, monitoring_paused`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -201,7 +201,7 @@ func (s *Store) scanProxy(r rowScanner) (domain.Proxy, error) {
 		availIntvl, speedIntvl sql.NullInt64
 	)
 	if err := r.Scan(&p.ID, &p.Name, &proto, &p.Host, &port, &tagsJSON, &authOn, &user, &enc,
-		&availOn, &availIntvl, &speedOn, &speedIntvl); err != nil {
+		&availOn, &availIntvl, &speedOn, &speedIntvl, &p.MonitoringPaused); err != nil {
 		return domain.Proxy{}, err
 	}
 	p.Protocol = domain.Protocol(proto)
@@ -403,4 +403,33 @@ func (s *Store) DeleteProxy(ctx context.Context, id domain.ProxyID) error {
 
 func isConstraint(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "constraint failed")
+}
+
+// SetMonitoringPaused changes only the pause flag, preserving schedule overrides
+// and history. Pending scheduled work is removed atomically; manual and running
+// jobs are left alone.
+func (s *Store) SetMonitoringPaused(ctx context.Context, id domain.ProxyID, paused bool, now time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE proxies SET monitoring_paused = ?, updated_at = ?,
+		next_availability_at = CASE WHEN ? THEN NULL ELSE next_availability_at END,
+		next_speed_at = CASE WHEN ? THEN NULL ELSE next_speed_at END WHERE id = ?`,
+		paused, now.UTC().UnixMilli(), paused, paused, int64(id))
+	if err != nil {
+		return fmt.Errorf("set monitoring pause: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if paused {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE proxy_id = ? AND source = 'scheduled' AND status = 'pending'`, int64(id)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

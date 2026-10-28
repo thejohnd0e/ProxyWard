@@ -27,6 +27,7 @@ func (s *Server) registerProxyRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/proxies/{id}", protected(s.getProxy))
 	mux.Handle("PUT /api/proxies/{id}", protected(s.updateProxy))
 	mux.Handle("DELETE /api/proxies/{id}", protected(s.deleteProxy))
+	mux.Handle("PUT /api/proxies/{id}/monitoring", protected(s.setProxyMonitoring))
 	mux.Handle("POST /api/proxies/import/preview", protected(s.importPreview))
 	mux.Handle("POST /api/proxies/import", protected(s.importProxies))
 }
@@ -86,6 +87,7 @@ type proxyDTO struct {
 	AuthEnabled          bool         `json:"auth_enabled"`
 	Username             string       `json:"username"`
 	HasPassword          bool         `json:"has_password"`
+	MonitoringPaused     bool         `json:"monitoring_paused"`
 	AvailabilitySchedule *scheduleDTO `json:"availability_schedule"`
 	SpeedSchedule        *scheduleDTO `json:"speed_schedule"`
 
@@ -102,6 +104,7 @@ func toDTO(p domain.Proxy) proxyDTO {
 	d := proxyDTO{
 		ID: int64(p.ID), Name: p.Name, Protocol: string(p.Protocol), Host: p.Host, Port: p.Port,
 		Tags:                 p.Tags,
+		MonitoringPaused:     p.MonitoringPaused,
 		AvailabilitySchedule: scheduleToDTO(p.AvailabilitySchedule),
 		SpeedSchedule:        scheduleToDTO(p.SpeedSchedule),
 	}
@@ -401,6 +404,40 @@ func (s *Server) deleteProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) setProxyMonitoring(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r)
+	if !ok {
+		s.storeError(w, "set monitoring pause", store.ErrNotFound)
+		return
+	}
+	var in struct {
+		Paused *bool `json:"paused"`
+	}
+	if !decodeJSONLimit(w, r, &in, maxProxyBodyBytes) {
+		return
+	}
+	if in.Paused == nil {
+		writeValidation(w, map[string]string{"paused": "Must be a boolean."})
+		return
+	}
+	if err := s.db.SetMonitoringPaused(r.Context(), id, *in.Paused, s.clock.Now()); err != nil {
+		s.storeError(w, "set monitoring pause", err)
+		return
+	}
+	if s.reconcile != nil {
+		if err := s.reconcile(r.Context()); err != nil {
+			s.internalError(w, "reconcile monitoring", err)
+			return
+		}
+	}
+	p, err := s.db.GetProxy(r.Context(), id)
+	if err != nil {
+		s.storeError(w, "get proxy", err)
+		return
+	}
+	s.respondProxy(w, r, http.StatusOK, p)
 }
 
 type importRequest struct {

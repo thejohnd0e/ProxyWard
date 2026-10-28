@@ -44,6 +44,36 @@ describe('ProxyPage', () => {
     expect(screen.getByText(/3 of 100 proxies: 1 up, 1 down, 0 indeterminate, 1 unknown/)).toBeInTheDocument();
   });
 
+  it('pauses and resumes a proxy while keeping manual checks available', async () => {
+    const user = mount();
+    await screen.findByRole('link', { name: 'Alpha' });
+    await user.click(screen.getByRole('button', { name: 'More actions for Alpha' }));
+    e.listProxies.mockResolvedValue({ proxies: [makeUpProxy({ name: 'Alpha', monitoring_paused: true })], limit: 100, geo_configured: true });
+    await user.click(screen.getByRole('menuitem', { name: 'Pause' }));
+    expect(e.setMonitoringPaused).toHaveBeenCalledWith(1, true);
+    const paused = await screen.findByText('Paused');
+    expect(paused.closest('tr')).toHaveClass('row--paused');
+    expect(screen.getByRole('button', { name: 'Check availability of Alpha' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Test speed of Alpha' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'More actions for Alpha' }));
+    e.listProxies.mockResolvedValue({ proxies: [makeUpProxy({ name: 'Alpha' })], limit: 100, geo_configured: true });
+    await user.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    expect(e.setMonitoringPaused).toHaveBeenLastCalledWith(1, false);
+    await waitFor(() => expect(screen.queryByText('Paused')).not.toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Alpha' }).closest('tr')).not.toHaveClass('row--paused');
+  });
+
+  it('keeps the proxy active and explains a rejected pause request', async () => {
+    e.setMonitoringPaused.mockRejectedValue(new ApiError(503, 'unavailable', 'Cannot pause monitoring.'));
+    const user = mount();
+    await screen.findByRole('link', { name: 'Alpha' });
+    await user.click(screen.getByRole('button', { name: 'More actions for Alpha' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pause' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot pause monitoring.');
+    expect(screen.queryByText('Paused')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Alpha' }).closest('tr')).not.toHaveClass('row--paused');
+  });
+
   it('checks all proxies when nothing is selected', async () => {
     const user = mount();
     await screen.findByRole('link', { name: 'Alpha' });

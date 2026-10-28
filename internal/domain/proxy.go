@@ -31,13 +31,14 @@ type Credentials struct {
 
 // Proxy is a monitored proxy endpoint.
 type Proxy struct {
-	ID       ProxyID
-	Name     string
-	Protocol Protocol
-	Host     string
-	Port     uint16
-	Auth     *Credentials // nil disables authentication
-	Tags     []string
+	ID               ProxyID
+	Name             string
+	Protocol         Protocol
+	Host             string
+	Port             uint16
+	Auth             *Credentials // nil disables authentication
+	Tags             []string
+	MonitoringPaused bool
 
 	// Per-proxy schedule overrides; nil inherits the global schedule. An
 	// override with Enabled=false disables the schedule even if globally enabled.

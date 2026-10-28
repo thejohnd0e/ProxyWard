@@ -9,7 +9,7 @@ function setup() {
   render(
     <div>
       <button type="button">Elsewhere</button>
-      <RowMenu name="Alpha" onEdit={onEdit} onDelete={onDelete} />
+      <RowMenu name="Alpha" paused={false} onToggleMonitoring={vi.fn()} onEdit={onEdit} onDelete={onDelete} />
     </div>,
   );
   return { onEdit, onDelete, user: userEvent.setup(), more: screen.getByRole('button', { name: 'More actions for Alpha' }) };
@@ -48,6 +48,8 @@ describe('RowMenu', () => {
   it('moves between the items with the arrow keys and activates with Enter', async () => {
     const { user, more, onDelete, onEdit } = setup();
     await user.click(more);
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: 'Pause' })).toHaveFocus();
     await user.keyboard('{ArrowDown}');
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveFocus();
     await user.keyboard('{ArrowDown}');

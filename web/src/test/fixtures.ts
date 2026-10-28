@@ -3,6 +3,7 @@ import type { Proxy, SettingsView } from '../api/types';
 export function makeProxy(overrides: Partial<Proxy> = {}): Proxy {
   return {
     id: 1,
+    monitoring_paused: false,
     name: 'Office gateway',
     protocol: 'http',
     host: '10.0.0.5',

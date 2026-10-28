@@ -5,6 +5,8 @@ interface Props {
   name: string;
   onEdit: () => void;
   onDelete: () => void;
+  paused: boolean;
+  onToggleMonitoring: () => void;
 }
 
 interface Place {
@@ -13,7 +15,7 @@ interface Place {
   right: number;
 }
 
-const MENU_HEIGHT = 84;
+const MENU_HEIGHT = 120;
 
 /** Where the menu goes for a button at r: below it, or above when there is no room. */
 function placeFor(r: DOMRect): Place {
@@ -22,10 +24,10 @@ function placeFor(r: DOMRect): Place {
 }
 
 /**
- * One "More" button that opens a small menu with Edit and Delete. The menu is
+ * One "More" button for editing, pausing/resuming monitoring, and deleting. The menu is
  * positioned against the viewport, so the scrolling table cannot clip it.
  */
-export function RowMenu({ name, onEdit, onDelete }: Props) {
+export function RowMenu({ name, onEdit, onDelete, paused, onToggleMonitoring }: Props) {
   const [place, setPlace] = useState<Place | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -107,6 +109,9 @@ export function RowMenu({ name, onEdit, onDelete }: Props) {
         <div ref={menu} id={menuId} role="menu" aria-label={`Actions for ${name}`} className="menu" style={place}>
           <button type="button" role="menuitem" className="menu__item" onClick={() => choose(onEdit)}>
             Edit
+          </button>
+          <button type="button" role="menuitem" className="menu__item" onClick={() => choose(onToggleMonitoring)}>
+            {paused ? 'Resume' : 'Pause'}
           </button>
           <button type="button" role="menuitem" className="menu__item menu__item--danger" onClick={() => choose(onDelete)}>
             Delete

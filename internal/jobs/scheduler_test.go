@@ -16,6 +16,37 @@ import (
 
 var epoch = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 
+func TestPausePreservesRunningAndManualJobs(t *testing.T) {
+	e := newEnv(t, 2)
+	ctx := context.Background()
+	e.settings(func(s *domain.Settings) { s.Availability.Enabled = true; s.Speed.Enabled = true })
+	e.tick()
+	e.clock.Advance(10 * time.Second)
+	running, ok, err := e.db.ClaimJob(ctx, domain.CheckAvailability, e.clock.Now())
+	if err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	manual, err := e.db.EnqueueJobs(ctx, []domain.ProxyID{running.ProxyID}, domain.CheckSpeed, domain.SourceManual, e.clock.Now(), e.clock.Now())
+	if err != nil || len(manual.Existing) != 1 {
+		t.Fatalf("manual promotion: %+v %v", manual, err)
+	}
+	if err := e.db.SetMonitoringPaused(ctx, running.ProxyID, true, e.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.tick()
+	got, err := e.db.GetJob(ctx, running.ID)
+	if err != nil || got.Status != domain.JobRunning {
+		t.Fatalf("running job changed: %+v %v", got, err)
+	}
+	got, err = e.db.GetJob(ctx, manual.Existing[0].ID)
+	if err != nil || got.Status != domain.JobPending || got.Source != domain.SourceManual {
+		t.Fatalf("manual job changed: %+v %v", got, err)
+	}
+	if len(e.active(domain.CheckAvailability)) != 2 || len(e.active(domain.CheckSpeed)) != 2 {
+		t.Fatal("pause changed other proxy jobs")
+	}
+}
+
 type env struct {
 	t     *testing.T
 	db    *store.Store

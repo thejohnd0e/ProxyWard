@@ -72,8 +72,8 @@ func (s *Store) EnqueueJobs(ctx context.Context, ids []domain.ProxyID, kind doma
 		}
 		seen[id] = true
 
-		var one int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM proxies WHERE id = ?`, int64(id)).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		var paused bool
+		if err := tx.QueryRowContext(ctx, `SELECT monitoring_paused FROM proxies WHERE id = ?`, int64(id)).Scan(&paused); errors.Is(err, sql.ErrNoRows) {
 			res.Missing = append(res.Missing, id)
 			continue
 		} else if err != nil {
@@ -81,6 +81,9 @@ func (s *Store) EnqueueJobs(ctx context.Context, ids []domain.ProxyID, kind doma
 		}
 
 		if source == domain.SourceScheduled {
+			if paused {
+				continue
+			}
 			// Re-check inside the transaction that the proxy is still due. A
 			// check that finished after the scheduler took its snapshot has
 			// already stored a later next run, and must not be queued again.
@@ -336,6 +339,7 @@ func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int, error) {
 // ScheduleState is a proxy's schedule overrides and persisted next-run times.
 type ScheduleState struct {
 	ProxyID                     domain.ProxyID
+	MonitoringPaused            bool
 	Availability, Speed         *domain.Schedule // overrides; nil inherits
 	NextAvailability, NextSpeed *time.Time
 }
@@ -344,7 +348,7 @@ type ScheduleState struct {
 func (s *Store) ListSchedules(ctx context.Context) ([]ScheduleState, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, availability_enabled, availability_interval_s, speed_enabled, speed_interval_s,
-		        next_availability_at, next_speed_at FROM proxies ORDER BY id`)
+		        next_availability_at, next_speed_at, monitoring_paused FROM proxies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list schedules: %w", err)
 	}
@@ -356,7 +360,7 @@ func (s *Store) ListSchedules(ctx context.Context) ([]ScheduleState, error) {
 			ae, ai, se, si sql.NullInt64
 			nextA, nextS   sql.NullInt64
 		)
-		if err := rows.Scan(&st.ProxyID, &ae, &ai, &se, &si, &nextA, &nextS); err != nil {
+		if err := rows.Scan(&st.ProxyID, &ae, &ai, &se, &si, &nextA, &nextS, &st.MonitoringPaused); err != nil {
 			return nil, fmt.Errorf("list schedules: %w", err)
 		}
 		if ae.Valid {
@@ -395,7 +399,7 @@ func (s *Store) SetNextRun(ctx context.Context, id domain.ProxyID, kind domain.C
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.ExecContext(ctx, `UPDATE proxies SET `+col+` = ? WHERE id = ?`, v, int64(id))
+	res, err := s.db.ExecContext(ctx, `UPDATE proxies SET `+col+` = CASE WHEN monitoring_paused = 1 THEN NULL ELSE ? END WHERE id = ?`, v, int64(id))
 	if err != nil {
 		return fmt.Errorf("set next run: %w", err)
 	}

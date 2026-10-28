@@ -35,6 +35,8 @@ export const getProxy = (id: number, signal?: AbortSignal) => api<Proxy>(`/api/p
 export const createProxy = (input: ProxyInput) => api<Proxy>('/api/proxies', { method: 'POST', body: input });
 export const updateProxy = (id: number, input: ProxyInput) => api<Proxy>(`/api/proxies/${id}`, { method: 'PUT', body: input });
 export const deleteProxy = (id: number) => api(`/api/proxies/${id}`, { method: 'DELETE' });
+export const setMonitoringPaused = (id: number, paused: boolean) =>
+  api<Proxy>(`/api/proxies/${id}/monitoring`, { method: 'PUT', body: { paused } });
 
 export const previewImport = (text: string, default_protocol: Protocol) =>
   api<ImportPreview>('/api/proxies/import/preview', { method: 'POST', body: { text, default_protocol } });

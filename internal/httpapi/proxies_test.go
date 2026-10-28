@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thejohnd0e/ProxyWard/internal/auth"
+	"github.com/thejohnd0e/ProxyWard/internal/domain"
+	"github.com/thejohnd0e/ProxyWard/internal/jobs"
 )
 
 type session struct {
@@ -65,6 +69,85 @@ func (s *session) create(body any) m {
 
 func idPath(p m) string { return fmt.Sprintf("/api/proxies/%d", int64(p["id"].(float64))) }
 
+func TestProxyMonitoringPause(t *testing.T) {
+	s := newSession(t)
+	p := s.create(m{"protocol": "http", "host": "pause.lan", "port": 8080,
+		"availability_schedule": m{"enabled": true, "interval_minutes": 7},
+		"speed_schedule":        m{"enabled": true, "interval_minutes": 11}})
+	path := idPath(p)
+	id := domain.ProxyID(p["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sched := jobs.NewScheduler(s.e.db, nil)
+	sched.Jitter = func() time.Duration { return 0 }
+	if err := sched.Tick(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, paused := range []bool{true, true, false} {
+		r := s.call("PUT", path+"/monitoring", m{"paused": paused})
+		if r.status != 200 {
+			t.Fatalf("toggle: %d %s", r.status, r.body)
+		}
+		got := decode(t, s.call("GET", path, nil))
+		if got["monitoring_paused"] != paused {
+			t.Fatalf("pause not persisted: %v", got)
+		}
+		if got["availability_schedule"].(m)["interval_minutes"] != float64(7) {
+			t.Fatal("schedule changed")
+		}
+		if got["speed_schedule"].(m)["interval_minutes"] != float64(11) ||
+			got["availability_schedule"].(m)["enabled"] != true || got["speed_schedule"].(m)["enabled"] != true {
+			t.Fatal("schedule overrides changed")
+		}
+		if err := sched.Tick(ctx, now); err != nil {
+			t.Fatal(err)
+		}
+		active, err := s.e.db.ListActiveJobs(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if paused && len(active) != 0 {
+			t.Fatalf("paused jobs: %v", active)
+		}
+		if !paused && len(active) != 2 {
+			t.Fatalf("resume jobs: %v", active)
+		}
+	}
+	if r := s.call("PUT", path+"/monitoring", m{"paused": true}); r.status != 200 {
+		t.Fatal(r)
+	}
+	// A stale scheduler snapshot must not enqueue after the pause commits.
+	r, err := s.e.db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceScheduled, now, now)
+	if err != nil || len(r.New) != 0 {
+		t.Fatalf("scheduled during pause: %+v %v", r, err)
+	}
+	r, err = s.e.db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, now, now)
+	if err != nil || len(r.New) != 1 {
+		t.Fatalf("manual during pause: %+v %v", r, err)
+	}
+	if err := sched.Tick(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.e.db.ClaimJob(ctx, domain.CheckAvailability, now); err != nil || !ok {
+		t.Fatalf("manual claim: %v %v", ok, err)
+	}
+	if err := sched.Completed(ctx, id, domain.CheckAvailability, now); err != nil {
+		t.Fatal(err)
+	}
+	got := decode(t, s.call("GET", path, nil))
+	if got["next_runs"].(m)["availability"] != nil {
+		t.Fatal("paused completion scheduled another run")
+	}
+	for _, body := range []string{`{}`, `{"paused":null}`, `{"paused":"yes"}`} {
+		if r := s.call("PUT", path+"/monitoring", body); r.status < 400 {
+			t.Fatalf("accepted %s", body)
+		}
+	}
+	if r := s.call("PUT", "/api/proxies/99999/monitoring", m{"paused": true}); r.status != 404 {
+		t.Fatal(r)
+	}
+}
+
 func fieldError(t *testing.T, r resp, status int, code, field string) {
 	t.Helper()
 	if r.status != status || !strings.Contains(r.body, `"code":"`+code+`"`) {
@@ -83,6 +166,7 @@ func TestProxyRoutesRequireAuthenticationAndCSRF(t *testing.T) {
 	for _, tc := range [][2]string{
 		{"GET", "/api/proxies"}, {"POST", "/api/proxies"}, {"GET", "/api/proxies/1"},
 		{"PUT", "/api/proxies/1"}, {"DELETE", "/api/proxies/1"},
+		{"PUT", "/api/proxies/1/monitoring"},
 		{"POST", "/api/proxies/import/preview"}, {"POST", "/api/proxies/import"},
 	} {
 		if r := s.e.do(tc[0], tc[1], "{}", nil, ""); r.status != 401 {

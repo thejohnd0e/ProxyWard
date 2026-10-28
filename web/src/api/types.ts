@@ -67,6 +67,7 @@ export interface ActiveJob {
 
 export interface Proxy {
   id: number;
+  monitoring_paused: boolean;
   name: string;
   protocol: Protocol;
   host: string;

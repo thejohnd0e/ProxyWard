@@ -13,6 +13,7 @@ function setup(proxies: Proxy[], opts: { geoConfigured?: boolean; selected?: num
     onCheck: vi.fn(),
     onEdit: vi.fn(),
     onDelete: vi.fn(),
+    onToggleMonitoring: vi.fn(),
   };
   const onSort = vi.fn();
   render(

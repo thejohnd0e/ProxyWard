@@ -47,6 +47,29 @@ test('adds a proxy with the form and sees it become Up with its exit IP', async 
   await shot(page, info, 'one-proxy-up');
 });
 
+test('pauses monitoring, keeps manual checks available, and resumes after reload', async ({}, info) => {
+  const name = fx.proxies[0]!.name;
+  const host = row(name);
+  await page.getByRole('button', { name: `More actions for ${name}` }).click();
+  await page.getByRole('menuitem', { name: 'Pause', exact: true }).click();
+  await expect(host).toHaveClass(/row--paused/);
+  await expect(host.getByText('Paused', { exact: true })).toBeVisible();
+  await expect(host.getByRole('button', { name: `Check availability of ${name}` })).toBeEnabled();
+  await expect(host.getByRole('button', { name: `Test speed of ${name}` })).toBeEnabled();
+  await expect(host.locator('.cell-proxy')).toHaveCSS('filter', 'grayscale(1)');
+  await setTheme(page, 'Dark');
+  await shot(page, info, 'monitoring-paused-dark');
+  await page.reload();
+  await expect(host.getByText('Paused', { exact: true })).toBeVisible();
+  await setTheme(page, 'Light');
+  await page.getByRole('button', { name: `More actions for ${name}` }).click();
+  await expect(page.getByRole('menuitem', { name: 'Resume', exact: true })).toBeVisible();
+  await shot(page, info, 'monitoring-resume-menu');
+  await page.getByRole('menuitem', { name: 'Resume', exact: true }).click();
+  await expect(host).not.toHaveClass(/row--paused/);
+  await expect(host.locator('.status--up')).toBeVisible();
+});
+
 test('previews an import with problems, then imports only the good rows', async ({}, info) => {
   const [office, berlin, paris, wall, dead] = fx.proxies;
   const list = [

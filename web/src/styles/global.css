@@ -455,6 +455,15 @@ input[aria-invalid='true'] {
 .row--skipped {
   color: var(--text-2);
 }
+/* Mute data cells, not the row itself: filters on a row would also trap the
+   viewport-positioned More menu in a new containing block. */
+.proxy-table .row--paused > td:not(.col-actions):not(.col-select) {
+  color: var(--text-2);
+  filter: grayscale(1);
+}
+.proxy-table .row--paused .proxy-name {
+  color: var(--text-2);
+}
 .col-select {
   width: 36px;
 }

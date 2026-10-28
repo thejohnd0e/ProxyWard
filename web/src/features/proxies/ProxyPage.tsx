@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { deleteProxy, enqueueChecks, listProxies } from '../../api/endpoints';
+import { deleteProxy, enqueueChecks, listProxies, setMonitoringPaused } from '../../api/endpoints';
 import type { CheckKind, Proxy, ProxyList, State } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useVisiblePolling } from '../../lib/useVisiblePolling';
@@ -91,6 +91,15 @@ export function ProxyPage() {
   };
 
   const selectedProxies = proxies.filter((p) => selected.has(p.id));
+  const toggleMonitoring = async (proxy: Proxy) => {
+    setNotice(null);
+    try {
+      await setMonitoringPaused(proxy.id, !proxy.monitoring_paused);
+      await refresh();
+    } catch (err) {
+      setNotice({ kind: 'error', text: errorText(err) });
+    }
+  };
   const target: number[] | 'all' = selected.size > 0 ? [...selected] : 'all';
   const label = (verb: string, all: string) => (selected.size > 0 ? `${verb} selected (${selected.size})` : all);
   const atLimit = data !== null && proxies.length >= data.limit;
@@ -201,6 +210,7 @@ export function ProxyPage() {
           onCheck={(kind, id) => void run(kind, [id])}
           onEdit={(proxy) => setDialog({ type: 'edit', proxy })}
           onDelete={(proxy) => setDialog({ type: 'delete', proxies: [proxy] })}
+          onToggleMonitoring={(proxy) => void toggleMonitoring(proxy)}
         />
       )}
       {proxies.length > 0 && visible.length === 0 ? <p className="empty__title">No proxy matches these filters.</p> : null}

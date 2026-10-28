@@ -19,6 +19,7 @@ interface Props {
   onCheck: (kind: CheckKind, id: number) => void;
   onEdit: (proxy: Proxy) => void;
   onDelete: (proxy: Proxy) => void;
+  onToggleMonitoring: (proxy: Proxy) => void;
 }
 
 function jobFor(p: Proxy, kind: CheckKind): ActiveJob | undefined {
@@ -83,7 +84,7 @@ function SortHeader({ label, column, sort, onSort }: { label: string; column: So
   );
 }
 
-export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onToggle, onToggleAll, onCheck, onEdit, onDelete }: Props) {
+export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onToggle, onToggleAll, onCheck, onEdit, onDelete, onToggleMonitoring }: Props) {
   if (proxies.length === 0) {
     return (
       <div className="empty">
@@ -117,7 +118,7 @@ export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onT
         </thead>
         <tbody>
           {proxies.map((p) => (
-            <tr key={p.id} className={selected.has(p.id) ? 'row--selected' : undefined}>
+            <tr key={p.id} className={[selected.has(p.id) ? 'row--selected' : '', p.monitoring_paused ? 'row--paused' : ''].filter(Boolean).join(' ') || undefined}>
               <td className="col-select" data-label="">
                 <input type="checkbox" aria-label={`Select ${p.name}`} checked={selected.has(p.id)} onChange={(e) => onToggle(p.id, e.target.checked)} />
               </td>
@@ -146,7 +147,7 @@ export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onT
                 ) : null}
               </td>
               <td data-label="Status">
-                <StatusBadge state={p.status.state} />
+                {p.monitoring_paused ? <span className="status" title="Automatic monitoring is paused. Manual checks remain available.">Paused</span> : <StatusBadge state={p.status.state} />}
                 <div className="muted" title={p.status.checked_at ? formatDateTime(p.status.checked_at) : undefined}>
                   {p.status.checked_at ? formatRelative(p.status.checked_at) : 'Never checked'}
                 </div>
@@ -187,7 +188,7 @@ export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onT
                 <div className="actions">
                   <CheckButton proxy={p} kind="availability" onCheck={onCheck} />
                   <CheckButton proxy={p} kind="speed" onCheck={onCheck} />
-                  <RowMenu name={p.name} onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} />
+                   <RowMenu name={p.name} paused={p.monitoring_paused} onToggleMonitoring={() => onToggleMonitoring(p)} onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} />
                 </div>
               </td>
             </tr>
