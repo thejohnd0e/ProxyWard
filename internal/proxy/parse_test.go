@@ -71,6 +71,49 @@ func TestParseLineValid(t *testing.T) {
 	}
 }
 
+func TestParseLineFragmentNames(t *testing.T) {
+	for name, tc := range map[string]struct {
+		line string
+		want string
+	}{
+		"fragment is display name": {"http://10.0.0.1:3128#proxy_US", "proxy_US"},
+		"percent encoded name":     {"http://10.0.0.1:3128#Proxy%20US", "Proxy US"},
+		"credentials and name":     {"http://alice:secret@10.0.0.1:3128#proxy_US", "proxy_US"},
+		"plus remains literal":     {"http://10.0.0.1:3128#proxy+US", "proxy+US"},
+		"no fragment uses address": {"http://10.0.0.1:3128", "10.0.0.1:3128"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, err := ParseLine(tc.line, "http")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Name != tc.want {
+				t.Fatalf("name = %q, want %q", p.Name, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseLineInvalidFragmentNames(t *testing.T) {
+	for name, line := range map[string]string{
+		"empty":              "http://10.0.0.1:80#",
+		"malformed encoding": "http://10.0.0.1:80#bad%zz",
+		"control character":  "http://10.0.0.1:80#bad%0Aname",
+		"overlong":           "http://10.0.0.1:80#" + strings.Repeat("a", 101),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseLine(line, "http")
+			var pe *ParseError
+			if !errors.As(err, &pe) || pe.Code != "invalid_fragment_name" {
+				t.Fatalf("error = %v, want ParseError code %q", err, "invalid_fragment_name")
+			}
+			if strings.Contains(err.Error(), line) {
+				t.Fatal("parse error contains input text")
+			}
+		})
+	}
+}
+
 func TestParseLineErrors(t *testing.T) {
 	for name, tc := range map[string]struct {
 		line string
@@ -91,7 +134,6 @@ func TestParseLineErrors(t *testing.T) {
 		"path":                    {"http://10.0.0.1:80/path", CodeUnexpectedPath},
 		"query":                   {"http://10.0.0.1:80?x=1", CodeUnexpectedQuery},
 		"query after slash":       {"http://10.0.0.1:80/?x=1", CodeUnexpectedQuery},
-		"fragment":                {"http://10.0.0.1:80#frag", CodeUnexpectedFragment},
 		"empty username":          {"http://:secret@10.0.0.1:80", CodeEmptyUsername},
 		"empty userinfo":          {"http://@10.0.0.1:80", CodeEmptyUsername},
 		"bad escape":              {"http://us%zzer:pw@10.0.0.1:80", CodeInvalidCredentials},

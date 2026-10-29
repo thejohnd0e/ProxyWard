@@ -16,18 +16,18 @@ import (
 
 // Parse error codes. They are stable identifiers shown in import previews.
 const (
-	CodeEmpty              = "empty"
-	CodeInvalidScheme      = "invalid_scheme"
-	CodeInvalidFormat      = "invalid_format"
-	CodeAmbiguousFormat    = "ambiguous_format"
-	CodeInvalidURL         = "invalid_url"
-	CodeInvalidHost        = "invalid_host"
-	CodeInvalidPort        = "invalid_port"
-	CodeUnexpectedPath     = "unexpected_path"
-	CodeUnexpectedQuery    = "unexpected_query"
-	CodeUnexpectedFragment = "unexpected_fragment"
-	CodeEmptyUsername      = "empty_username"
-	CodeInvalidCredentials = "invalid_credentials_encoding"
+	CodeEmpty               = "empty"
+	CodeInvalidScheme       = "invalid_scheme"
+	CodeInvalidFormat       = "invalid_format"
+	CodeAmbiguousFormat     = "ambiguous_format"
+	CodeInvalidURL          = "invalid_url"
+	CodeInvalidHost         = "invalid_host"
+	CodeInvalidPort         = "invalid_port"
+	CodeUnexpectedPath      = "unexpected_path"
+	CodeUnexpectedQuery     = "unexpected_query"
+	CodeInvalidFragmentName = "invalid_fragment_name"
+	CodeEmptyUsername       = "empty_username"
+	CodeInvalidCredentials  = "invalid_credentials_encoding"
 )
 
 // ParseError reports why a line was rejected. It never contains input text, so
@@ -41,8 +41,8 @@ func fail(code string) error { return &ParseError{Code: code} }
 // ParseLine parses scheme://user:password@host:port, scheme://host:port or
 // host:port (using defaultProtocol). Credentials are percent-decoded. The host
 // is normalized (lowercase DNS names, canonical IP text) while credentials keep
-// their case. Formats such as host:port:user:password are rejected rather than
-// guessed.
+// their case. A URL fragment, when present, is decoded and used as the display
+// name. Formats such as host:port:user:password are rejected rather than guessed.
 func ParseLine(line string, defaultProtocol domain.Protocol) (domain.Proxy, error) {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -50,8 +50,10 @@ func ParseLine(line string, defaultProtocol domain.Protocol) (domain.Proxy, erro
 	}
 
 	var (
-		proto domain.Protocol
-		rest  string
+		proto       domain.Protocol
+		rest        string
+		fragment    string
+		hasFragment bool
 	)
 	if i := strings.Index(line, "://"); i >= 0 {
 		proto = domain.Protocol(strings.ToLower(line[:i]))
@@ -76,6 +78,9 @@ func ParseLine(line string, defaultProtocol domain.Protocol) (domain.Proxy, erro
 			}
 		}
 	}
+	if before, after, found := strings.Cut(rest, "#"); found {
+		rest, fragment, hasFragment = before, after, true
+	}
 
 	switch {
 	case rest == "":
@@ -84,8 +89,17 @@ func ParseLine(line string, defaultProtocol domain.Protocol) (domain.Proxy, erro
 		return domain.Proxy{}, fail(CodeInvalidURL)
 	case strings.Contains(rest, "?"):
 		return domain.Proxy{}, fail(CodeUnexpectedQuery)
-	case strings.Contains(rest, "#"):
-		return domain.Proxy{}, fail(CodeUnexpectedFragment)
+	}
+	var fragmentName string
+	if hasFragment {
+		decoded, err := url.PathUnescape(fragment)
+		if err != nil {
+			return domain.Proxy{}, fail(CodeInvalidFragmentName)
+		}
+		fragmentName, err = ValidateName(decoded)
+		if err != nil {
+			return domain.Proxy{}, fail(CodeInvalidFragmentName)
+		}
 	}
 
 	u, err := url.Parse("//" + rest)
@@ -124,6 +138,9 @@ func ParseLine(line string, defaultProtocol domain.Protocol) (domain.Proxy, erro
 		Protocol: proto,
 		Host:     host,
 		Port:     uint16(port),
+	}
+	if hasFragment {
+		p.Name = fragmentName
 	}
 	if u.User != nil {
 		name := u.User.Username()

@@ -94,6 +94,7 @@ describe('labels', () => {
     expect(describeImportError('invalid_scheme')).toMatch(/http, https or socks5/);
     expect(describeImportError('ambiguous_format')).toMatch(/scheme:\/\/user:password@host:port/);
     expect(describeImportError('invalid_port')).toMatch(/1 to 65535/);
+    expect(describeImportError('invalid_fragment_name')).toMatch(/valid proxy name after "#"/);
     expect(describeImportError('something_new')).toBe('This line is not valid.');
     expect(describeImportError('')).toBe('');
   });

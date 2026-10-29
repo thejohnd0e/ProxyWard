@@ -95,7 +95,7 @@ const IMPORT_ERRORS: Record<string, string> = {
   invalid_port: 'The port is missing or not a number from 1 to 65535.',
   unexpected_path: 'Remove the path after the port.',
   unexpected_query: 'Remove the query string (everything from "?").',
-  unexpected_fragment: 'Remove the fragment (everything from "#").',
+  invalid_fragment_name: 'Add a valid proxy name after "#" (1 to 100 characters, without control characters).',
   empty_username: 'The username is empty. Remove the credentials or add a username.',
   invalid_credentials_encoding: 'The credentials are not valid percent-encoding. Encode special characters, for example "@" as %40.',
 };
