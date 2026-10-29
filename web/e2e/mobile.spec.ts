@@ -14,13 +14,23 @@ test('the dashboard works at 375 px without sideways scrolling', async ({ page }
   await shot(page, info, 'proxies-dark');
   await setTheme(page, 'Light');
 
-  for (const [link, heading] of [['Events', 'Events'], ['Settings', 'Settings']] as const) {
+  for (const [link, heading] of [['Events', 'Events']] as const) {
     await page.getByRole('link', { name: link, exact: true }).click();
     await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
     const o = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(o, `${link} overflows horizontally`).toBeLessThanOrEqual(0);
     await shot(page, info, link.toLowerCase());
   }
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settings).toBeVisible();
+  const settingsOverflow = await settings.evaluate((el) => el.scrollHeight - el.clientHeight);
+  expect(settingsOverflow, 'settings dialog should scroll internally on a phone').toBeGreaterThan(0);
+  const settingsPageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(settingsPageOverflow, 'settings dialog overflows horizontally').toBeLessThanOrEqual(0);
+  await shot(page, info, 'settings');
+  await page.keyboard.press('Escape');
 
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
   await page.getByRole('link', { name: 'Office gateway' }).click();

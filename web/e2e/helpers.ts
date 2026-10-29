@@ -33,5 +33,8 @@ export async function shot(page: Page, info: TestInfo, name: string): Promise<vo
 }
 
 export async function setTheme(page: Page, theme: 'System' | 'Light' | 'Dark'): Promise<void> {
-  await page.getByLabel('Theme').selectOption({ label: theme });
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await dialog.getByLabel('Theme').selectOption({ label: theme });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
 }

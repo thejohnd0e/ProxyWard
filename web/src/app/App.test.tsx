@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,6 +48,60 @@ describe('authentication', () => {
     expect(getCsrfToken()).toBe('csrf-1');
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Events' })).toBeInTheDocument();
+  });
+
+  it('shows the application version beside the brand', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-version' });
+    mount();
+    const brand = await screen.findByText(/ProxyWard/, { selector: '.brand' });
+    expect(brand).toHaveTextContent('ProxyWard v0.1.1');
+  });
+
+  it('opens settings in a dialog without leaving the current page', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-settings' });
+    mount();
+    const user = userEvent.setup();
+    await screen.findByText('Visible after login');
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('Visible after login')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Monitoring' })).toBeInTheDocument();
+  });
+
+  it('closes the settings dialog with Escape and returns focus to the settings button', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-escape' });
+    mount();
+    const user = userEvent.setup();
+    await screen.findByText('Visible after login');
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    await user.click(settingsButton);
+    await screen.findByRole('dialog', { name: 'Settings' });
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(settingsButton).toHaveFocus();
+  });
+
+  it('closes the settings dialog from its close button and backdrop', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-close' });
+    mount();
+    const user = userEvent.setup();
+    await screen.findByText('Visible after login');
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await user.click(await screen.findByRole('button', { name: 'Close dialog' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' });
+    await user.click(dialog.parentElement!);
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('redirects the legacy settings route to the proxies page', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-legacy-settings' });
+    mount('/settings');
+    expect(await screen.findByText('Visible after login')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(e.getSettings).not.toHaveBeenCalled();
   });
 
   it('signs in with the password and then loads the proxies', async () => {
@@ -142,7 +196,8 @@ describe('authentication', () => {
     mount();
     const user = userEvent.setup();
     await screen.findByText('Visible after login');
-    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByLabelText('Password')).toBeInTheDocument();
     expect(e.logout).toHaveBeenCalled();
     expect(getCsrfToken()).toBeNull();
@@ -159,10 +214,33 @@ describe('authentication', () => {
     mount();
     const user = userEvent.setup();
     await screen.findByText('Visible after login');
-    await user.selectOptions(screen.getByLabelText('Theme'), 'dark');
+    const topbar = within(screen.getByRole('banner'));
+    expect(topbar.queryByLabelText('Theme')).not.toBeInTheDocument();
+    expect(topbar.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+    await user.click(topbar.getByRole('button', { name: 'Settings' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(within(dialog).getByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    await user.selectOptions(within(dialog).getByLabelText('Theme'), 'dark');
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     expect(window.localStorage.getItem('proxyward.theme')).toBe('dark');
-    await user.selectOptions(screen.getByLabelText('Theme'), 'system');
+    await user.selectOptions(within(dialog).getByLabelText('Theme'), 'system');
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it('signs out from the Settings dialog and returns to the login form', async () => {
+    e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-signout' });
+    e.logout.mockResolvedValue(undefined);
+    mount();
+    const user = userEvent.setup();
+    await screen.findByText('Visible after login');
+    const topbar = within(screen.getByRole('banner'));
+    expect(topbar.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+    await user.click(topbar.getByRole('button', { name: 'Settings' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(within(dialog).getByRole('heading', { name: 'Account' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
+    expect(e.logout).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
   });
 });

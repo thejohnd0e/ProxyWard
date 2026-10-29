@@ -26,10 +26,11 @@ test.describe('authentication', () => {
     await signIn(page, fx.admin_password);
     await page.reload();
     await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await page.goto('/proxies');
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   });
 
   test('the theme choice is applied and remembered', async ({ page, request }) => {

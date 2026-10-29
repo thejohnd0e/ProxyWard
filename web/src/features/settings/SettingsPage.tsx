@@ -3,6 +3,7 @@ import { ApiError } from '../../api/client';
 import { changePassword, getSettings, putSettings, resumeSpeed, testTelegram } from '../../api/endpoints';
 import type { SettingsUpdate, SettingsView } from '../../api/types';
 import { useAuth } from '../../app/auth';
+import { useTheme, type ThemeChoice } from '../../app/theme';
 import { formatDateTime, splitInterval, toMinutes, type IntervalUnit } from '../../lib/format';
 import { useVisiblePolling } from '../../lib/useVisiblePolling';
 
@@ -104,22 +105,47 @@ export function SettingsPage() {
   const current = live ?? settings;
 
   return (
-    <section aria-labelledby="settings-title">
-      <div className="page-head">
-        <div>
-          <h1 id="settings-title">Settings</h1>
-        </div>
-      </div>
+    <section aria-label="Settings options">
       <div className="cards">
+        <AppearanceCard />
         <MonitoringCard settings={settings} live={current} onSaved={setSettings} refresh={refresh} />
         <GeoCard settings={current} onSaved={setSettings} />
         <TelegramCard settings={current} onSaved={setSettings} />
+        <SignOutCard />
         <AccountCard />
         <Card title="About">
           <p className="muted">Country flags come from the flag-icons package (MIT license) and are bundled with this application.</p>
         </Card>
       </div>
     </section>
+  );
+}
+
+function AppearanceCard() {
+  const [theme, setTheme] = useTheme();
+  return (
+    <Card title="Appearance">
+      <label className="theme">
+        <span>Theme</span>
+        <select value={theme} onChange={(e) => setTheme(e.target.value as ThemeChoice)} aria-label="Theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+    </Card>
+  );
+}
+
+function SignOutCard() {
+  const { signOut } = useAuth();
+  return (
+    <Card title="Account">
+      <p className="muted">Sign out of this administrator session.</p>
+      <button type="button" className="button button--small" onClick={() => void signOut()}>
+        Sign out
+      </button>
+    </Card>
   );
 }
 

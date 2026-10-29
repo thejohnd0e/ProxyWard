@@ -117,13 +117,14 @@ test('checks every proxy and explains each outcome', async ({}, info) => {
 });
 
 test('shows country, city and network without any key, and the source can be chosen', async ({}, info) => {
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
   const geo = page.getByRole('region', { name: 'Location lookup' });
   await expect(geo.getByLabel('Source')).toHaveValue('auto');
   await expect(geo.getByLabel(/api key/i)).toHaveCount(0);
   await geo.getByLabel('Source').selectOption('fixture');
   await geo.getByRole('button', { name: 'Save location source' }).click();
   await expect(geo.getByText('Location source saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Close dialog' }).click();
 
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
   await checkAll();
@@ -135,12 +136,13 @@ test('shows country, city and network without any key, and the source can be cho
 });
 
 test('measures speed and keeps a missing value as a dash', async ({}, info) => {
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
   const mon = page.getByRole('region', { name: 'Monitoring' });
   await mon.getByLabel('Speed sample size, MiB').fill('1');
   await mon.getByLabel('Failures before a proxy is reported down').fill('1');
   await mon.getByRole('button', { name: 'Save monitoring settings' }).click();
   await expect(mon.getByText('Monitoring settings saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Close dialog' }).click();
 
   await page.getByRole('link', { name: 'Proxies', exact: true }).click();
   const name = fx.proxies[0]!.name;
@@ -160,7 +162,7 @@ test('reports down proxies as events and sends them to Telegram once configured'
   await expect(page.getByText('Went down').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('Waiting to send').first()).toBeVisible();
 
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
   const tg = page.getByRole('region', { name: 'Telegram notifications' });
   await expect(tg.getByRole('button', { name: 'Send test message' })).toBeDisabled();
   await tg.getByLabel('Bot token').fill(fx.telegram_token);
@@ -175,6 +177,7 @@ test('reports down proxies as events and sends them to Telegram once configured'
   await expect.poll(async () => (await telegramMessages(request)).join('\n'), { timeout: 40_000 }).toContain('Test notification');
   await expect.poll(async () => (await telegramMessages(request)).join('\n'), { timeout: 40_000 }).toContain('is down');
   await expect(tg.getByText(/Last message sent/)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Close dialog' }).click();
 
   await page.getByRole('link', { name: 'Events' }).click();
   await expect(page.getByText(/Sent to Telegram/).first()).toBeVisible({ timeout: 20_000 });

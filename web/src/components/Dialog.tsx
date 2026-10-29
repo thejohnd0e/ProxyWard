@@ -8,13 +8,14 @@ interface Props {
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  className?: string;
 }
 
 /**
  * Modal dialog: labelled, closes on Escape or backdrop click, keeps Tab inside
  * and returns focus to the control that opened it.
  */
-export function Dialog({ title, onClose, children, wide = false }: Props) {
+export function Dialog({ title, onClose, children, wide = false, className = '' }: Props) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -64,7 +65,7 @@ export function Dialog({ title, onClose, children, wide = false }: Props) {
     >
       <div
         ref={panel}
-        className={`dialog${wide ? ' dialog--wide' : ''}`}
+        className={`dialog${wide ? ' dialog--wide' : ''}${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
