@@ -55,6 +55,7 @@ type env struct {
 	db         *store.Store
 	clock      *testkit.Clock
 	logs       *bytes.Buffer
+	bodiesMu   sync.Mutex
 	bodies     []string // every response body, for leak checks
 }
 
@@ -116,7 +117,9 @@ func (e *env) do(method, path, body string, hdr map[string]string, cookie string
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
+	e.bodiesMu.Lock()
 	e.bodies = append(e.bodies, string(b))
+	e.bodiesMu.Unlock()
 	return resp{status: res.StatusCode, header: res.Header, body: string(b)}
 }
 
