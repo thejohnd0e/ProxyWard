@@ -80,5 +80,24 @@ func (s *Store) PutSettings(ctx context.Context, st domain.Settings, now time.Ti
 	if err != nil {
 		return err
 	}
-	return s.SetSetting(ctx, appSettingsKey, Setting{Value: string(b)}, now)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+	defer tx.Rollback()
+	before, err := settingsFromTx(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("read previous settings: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key, value, secret, updated_at) VALUES (?, ?, 0, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, secret = 0, updated_at = excluded.updated_at`,
+		appSettingsKey, string(b), now.UTC().UnixMilli()); err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+	if err := s.reconcileAllSchedulesTx(ctx, tx, before, st, now); err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+	return tx.Commit()
 }

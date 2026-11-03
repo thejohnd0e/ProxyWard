@@ -374,7 +374,7 @@ func (s *Server) updateProxy(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fields)
 		return
 	}
-	if err := s.db.UpdateProxy(r.Context(), id, p, cu); err != nil {
+	if err := s.db.UpdateProxyAt(r.Context(), id, p, cu, s.clock.Now()); err != nil {
 		s.storeError(w, "update proxy", err)
 		return
 	}

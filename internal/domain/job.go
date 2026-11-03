@@ -24,13 +24,14 @@ const (
 
 // Job is one queued or finished check of a proxy.
 type Job struct {
-	ID         int64
-	ProxyID    ProxyID
-	Kind       CheckKind
-	Status     JobStatus
-	Source     string // SourceManual or SourceScheduled
-	DueAt      time.Time
-	CreatedAt  time.Time
-	StartedAt  *time.Time
-	FinishedAt *time.Time
+	ID               int64
+	ProxyID          ProxyID
+	Kind             CheckKind
+	Status           JobStatus
+	Source           string // SourceManual or SourceScheduled
+	DueAt            time.Time
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	ScheduleRevision int64
 }

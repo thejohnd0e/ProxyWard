@@ -278,7 +278,7 @@ func (r *Runner) completed(ctx context.Context, job domain.Job) {
 	if r.Scheduler == nil {
 		return
 	}
-	if err := r.Scheduler.Completed(ctx, job.ProxyID, job.Kind, r.Clock.Now()); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err := r.Scheduler.CompletedJob(ctx, job, r.Clock.Now()); err != nil && !errors.Is(err, store.ErrNotFound) {
 		r.logger().Error("record next run failed", "job", job.ID, "error", err)
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
-const jobColumns = `id, proxy_id, kind, status, source, due_at, created_at, started_at, finished_at`
+const jobColumns = `id, proxy_id, kind, status, source, due_at, created_at, started_at, finished_at, schedule_revision`
 
 func scanJob(r rowScanner) (domain.Job, error) {
 	var (
@@ -20,7 +20,7 @@ func scanJob(r rowScanner) (domain.Job, error) {
 		due, created       int64
 		started, finishedN sql.NullInt64
 	)
-	if err := r.Scan(&j.ID, &j.ProxyID, &kind, &status, &j.Source, &due, &created, &started, &finishedN); err != nil {
+	if err := r.Scan(&j.ID, &j.ProxyID, &kind, &status, &j.Source, &due, &created, &started, &finishedN, &j.ScheduleRevision); err != nil {
 		return domain.Job{}, err
 	}
 	j.Kind, j.Status = domain.CheckKind(kind), domain.JobStatus(status)
@@ -158,14 +158,22 @@ func (s *Store) ClaimJob(ctx context.Context, kind domain.CheckKind, now time.Ti
 		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
 	}
 	ms := now.UTC().UnixMilli()
-	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'`, ms, j.ID); err != nil {
+	var revision int64
+	revisionCol := "availability_revision"
+	if kind == domain.CheckSpeed {
+		revisionCol = "speed_revision"
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT `+revisionCol+` FROM proxies WHERE id = ?`, int64(j.ProxyID)).Scan(&revision); err != nil {
+		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'running', started_at = ?, schedule_revision = ? WHERE id = ? AND status = 'pending'`, ms, revision, j.ID); err != nil {
 		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
 	}
 	t := now.UTC()
-	j.Status, j.StartedAt = domain.JobRunning, &t
+	j.Status, j.StartedAt, j.ScheduleRevision = domain.JobRunning, &t, revision
 	return j, true, nil
 }
 

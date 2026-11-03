@@ -69,6 +69,9 @@ func globalOf(s domain.Settings, kind domain.CheckKind) domain.Schedule {
 //   - pending scheduled jobs of disabled schedules are removed, as are their
 //     stored next-run times; manual jobs are left alone.
 func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
+	if err := s.Store.ReconcileSchedules(ctx, now); err != nil {
+		return err
+	}
 	settings, err := s.Store.GetSettings(ctx)
 	if err != nil {
 		return err
@@ -79,7 +82,6 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 	}
 	queued := false
 	for _, kind := range kinds {
-		var enabled []domain.ProxyID
 		for _, st := range states {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -87,14 +89,8 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 			eff := domain.EffectiveSchedule(globalOf(settings, kind), scheduleOf(st, kind))
 			next := nextOf(st, kind)
 			if st.MonitoringPaused || !eff.Enabled {
-				if next != nil {
-					if err := s.Store.SetNextRun(ctx, st.ProxyID, kind, nil); err != nil && err != store.ErrNotFound {
-						return err
-					}
-				}
 				continue
 			}
-			enabled = append(enabled, st.ProxyID)
 			if next != nil && next.After(now) {
 				continue
 			}
@@ -111,9 +107,6 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 			}
 			queued = queued || len(res.New) > 0
 		}
-		if _, err := s.Store.RemoveScheduledPending(ctx, kind, enabled); err != nil {
-			return err
-		}
 	}
 	if queued && s.Wake != nil {
 		s.Wake()
@@ -121,28 +114,8 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-// Completed records the next run after a job of kind finished at now, for
-// scheduled and manual jobs alike. Without an enabled schedule the next run
-// stays unset.
-func (s *Scheduler) Completed(ctx context.Context, id domain.ProxyID, kind domain.CheckKind, now time.Time) error {
-	settings, err := s.Store.GetSettings(ctx)
-	if err != nil {
-		return err
-	}
-	states, err := s.Store.ListSchedules(ctx)
-	if err != nil {
-		return err
-	}
-	for _, st := range states {
-		if st.ProxyID != id {
-			continue
-		}
-		eff := domain.EffectiveSchedule(globalOf(settings, kind), scheduleOf(st, kind))
-		if st.MonitoringPaused || !eff.Enabled {
-			return s.Store.SetNextRun(ctx, id, kind, nil)
-		}
-		next := now.Add(eff.Interval)
-		return s.Store.SetNextRun(ctx, id, kind, &next)
-	}
-	return store.ErrNotFound
+// CompletedJob advances a schedule only when it still has the revision that
+// was captured atomically when the job was claimed.
+func (s *Scheduler) CompletedJob(ctx context.Context, job domain.Job, now time.Time) error {
+	return s.Store.AdvanceScheduleAfterJob(ctx, job.ProxyID, job.Kind, job.ScheduleRevision, now)
 }

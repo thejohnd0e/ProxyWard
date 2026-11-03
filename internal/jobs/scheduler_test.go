@@ -128,7 +128,7 @@ func (e *env) run(kind domain.CheckKind) int {
 		if err := e.db.FinishJob(ctx, j.ID, domain.JobDone, e.clock.Now()); err != nil {
 			e.t.Fatal(err)
 		}
-		if err := e.sched.Completed(ctx, j.ProxyID, kind, e.clock.Now()); err != nil {
+		if err := e.sched.CompletedJob(ctx, j, e.clock.Now()); err != nil {
 			e.t.Fatal(err)
 		}
 		n++
@@ -211,6 +211,133 @@ func TestNextRunIsMeasuredFromCompletion(t *testing.T) {
 	j := e.active(domain.CheckAvailability)[id]
 	if j.ID == 0 || !j.DueAt.Equal(*next) {
 		t.Fatalf("on-time job: %+v, want due %v", j, *next)
+	}
+}
+
+func TestIntervalChangeResetsNextRunFromChangeTime(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	id := e.ids[0]
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: 7 * 24 * time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	firstNext := epoch.Add(7 * 24 * time.Hour)
+	if err := e.db.SetNextRun(ctx, id, domain.CheckAvailability, &firstNext); err != nil {
+		t.Fatal(err)
+	}
+
+	changedAt := epoch.Add(time.Hour)
+	settings.Availability.Interval = time.Minute
+	if err := e.db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.next(id, domain.CheckAvailability), changedAt.Add(time.Minute); got == nil || !got.Equal(want) {
+		t.Fatalf("shortened schedule next run = %v, want %v", got, want)
+	}
+
+	changedAt = changedAt.Add(10 * time.Minute)
+	settings.Availability.Interval = 7 * 24 * time.Hour
+	if err := e.db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.next(id, domain.CheckAvailability), changedAt.Add(7*24*time.Hour); got == nil || !got.Equal(want) {
+		t.Fatalf("lengthened schedule next run = %v, want %v", got, want)
+	}
+}
+
+func TestUnchangedOverridePreservesNextRun(t *testing.T) {
+	e := newEnv(t, 2)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: 7 * 24 * time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := e.db.GetProxy(ctx, e.ids[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.AvailabilitySchedule = &domain.Schedule{Enabled: true, Interval: 2 * time.Hour}
+	if err := e.db.UpdateProxy(ctx, e.ids[1], proxy, store.CredentialUpdate{}); err != nil {
+		t.Fatal(err)
+	}
+	globalNext, overrideNext := epoch.Add(7*24*time.Hour), epoch.Add(2*time.Hour)
+	if err := e.db.SetNextRun(ctx, e.ids[0], domain.CheckAvailability, &globalNext); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.SetNextRun(ctx, e.ids[1], domain.CheckAvailability, &overrideNext); err != nil {
+		t.Fatal(err)
+	}
+
+	changedAt := epoch.Add(time.Hour)
+	settings.Availability.Interval = time.Minute
+	if err := e.db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.next(e.ids[0], domain.CheckAvailability), changedAt.Add(time.Minute); got == nil || !got.Equal(want) {
+		t.Fatalf("global next run = %v, want %v", got, want)
+	}
+	if got := e.next(e.ids[1], domain.CheckAvailability); got == nil || !got.Equal(overrideNext) {
+		t.Fatalf("unchanged override next run = %v, want %v", got, overrideNext)
+	}
+}
+
+func TestProxyOverrideIntervalChangeResetsNextRunFromChangeTime(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	id := e.ids[0]
+	p, err := e.db.GetProxy(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AvailabilitySchedule = &domain.Schedule{Enabled: true, Interval: 7 * 24 * time.Hour}
+	if err := e.db.UpdateProxyAt(ctx, id, p, store.CredentialUpdate{}, epoch); err != nil {
+		t.Fatal(err)
+	}
+	firstNext := epoch.Add(7 * 24 * time.Hour)
+	if err := e.db.SetNextRun(ctx, id, domain.CheckAvailability, &firstNext); err != nil {
+		t.Fatal(err)
+	}
+	changedAt := epoch.Add(time.Hour)
+	p.AvailabilitySchedule = &domain.Schedule{Enabled: true, Interval: time.Minute}
+	if err := e.db.UpdateProxyAt(ctx, id, p, store.CredentialUpdate{}, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.next(id, domain.CheckAvailability), changedAt.Add(time.Minute); got == nil || !got.Equal(want) {
+		t.Fatalf("proxy override next run = %v, want %v", got, want)
+	}
+}
+
+func TestOldCompletionPreservesNewScheduleRevision(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	id := e.ids[0]
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: 7 * 24 * time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	e.tick()
+	job, ok, err := e.db.ClaimJob(ctx, domain.CheckAvailability, epoch.Add(10*time.Second))
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if job.ScheduleRevision < 1 {
+		t.Fatalf("claimed job did not capture its schedule revision: %+v", job)
+	}
+
+	changedAt := epoch.Add(20 * time.Second)
+	settings.Availability.Interval = time.Minute
+	if err := e.db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.sched.CompletedJob(ctx, job, epoch.Add(30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.next(id, domain.CheckAvailability), changedAt.Add(time.Minute); got == nil || !got.Equal(want) {
+		t.Fatalf("completion overwrote new schedule: got %v, want %v (job %d)", got, want, job.ID)
 	}
 }
 

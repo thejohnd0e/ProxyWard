@@ -128,10 +128,11 @@ func TestProxyMonitoringPause(t *testing.T) {
 	if err := sched.Tick(ctx, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := s.e.db.ClaimJob(ctx, domain.CheckAvailability, now); err != nil || !ok {
+	job, ok, err := s.e.db.ClaimJob(ctx, domain.CheckAvailability, now)
+	if err != nil || !ok {
 		t.Fatalf("manual claim: %v %v", ok, err)
 	}
-	if err := sched.Completed(ctx, id, domain.CheckAvailability, now); err != nil {
+	if err := sched.CompletedJob(ctx, job, now); err != nil {
 		t.Fatal(err)
 	}
 	got := decode(t, s.call("GET", path, nil))

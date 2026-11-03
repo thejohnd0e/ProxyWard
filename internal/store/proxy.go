@@ -294,6 +294,12 @@ func (s *Store) ProxyExists(ctx context.Context, p domain.Proxy) (bool, error) {
 // with p's values and applies cu to its credentials. Per-field omission
 // semantics for the API are resolved by the caller before this call.
 func (s *Store) UpdateProxy(ctx context.Context, id domain.ProxyID, p domain.Proxy, cu CredentialUpdate) error {
+	return s.UpdateProxyAt(ctx, id, p, cu, time.Now().UTC())
+}
+
+// UpdateProxyAt replaces a proxy and reconciles any effective schedule change
+// in the same transaction. The supplied time is used as the schedule boundary.
+func (s *Store) UpdateProxyAt(ctx context.Context, id domain.ProxyID, p domain.Proxy, cu CredentialUpdate, now time.Time) error {
 	p.Auth = nil
 	r, err := s.prepare(p)
 	if err != nil {
@@ -307,6 +313,25 @@ func (s *Store) UpdateProxy(ctx context.Context, id domain.ProxyID, p domain.Pro
 		return fmt.Errorf("update proxy: %w", err)
 	}
 	defer tx.Rollback()
+	settings, err := settingsFromTx(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("update proxy: %w", err)
+	}
+	rows, err := readScheduleRows(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("update proxy: %w", err)
+	}
+	var old scheduleRow
+	found := false
+	for _, row := range rows {
+		if row.id == id {
+			old, found = row, true
+			break
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
 
 	var (
 		authOn  int
@@ -344,7 +369,7 @@ func (s *Store) UpdateProxy(ctx context.Context, id domain.ProxyID, p domain.Pro
 		    password_enc = ?, credential_digest = ?, availability_enabled = ?, availability_interval_s = ?,
 		    speed_enabled = ?, speed_interval_s = ?, updated_at = ? WHERE id = ?`,
 		r.name, r.protocol, r.host, r.port, r.tags, r.authEnabled, r.username, r.passwordEnc, r.digest,
-		r.availEnabled, r.availInterval, r.speedEnabled, r.speedInterval, time.Now().UTC().UnixMilli(), int64(id))
+		r.availEnabled, r.availInterval, r.speedEnabled, r.speedInterval, now.UTC().UnixMilli(), int64(id))
 	if err != nil {
 		if isConstraint(err) {
 			return fmt.Errorf("%w: proxy already exists", ErrConflict)
@@ -353,6 +378,14 @@ func (s *Store) UpdateProxy(ctx context.Context, id domain.ProxyID, p domain.Pro
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	newRow := scheduleRow{id: id, paused: old.paused, availability: p.AvailabilitySchedule, speed: p.SpeedSchedule,
+		availabilityRev: old.availabilityRev, speedRev: old.speedRev}
+	for _, kind := range []domain.CheckKind{domain.CheckAvailability, domain.CheckSpeed} {
+		_, rev := scheduleFor(old, kind)
+		if err := reconcileOneScheduleTx(ctx, tx, id, kind, effective(old, settings, kind), effective(newRow, settings, kind), old.paused, old.paused, rev, now); err != nil {
+			return fmt.Errorf("update proxy schedule: %w", err)
+		}
 	}
 	return tx.Commit()
 }
@@ -416,19 +449,37 @@ func (s *Store) SetMonitoringPaused(ctx context.Context, id domain.ProxyID, paus
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE proxies SET monitoring_paused = ?, updated_at = ?,
-		next_availability_at = CASE WHEN ? THEN NULL ELSE next_availability_at END,
-		next_speed_at = CASE WHEN ? THEN NULL ELSE next_speed_at END WHERE id = ?`,
-		paused, now.UTC().UnixMilli(), paused, paused, int64(id))
+	settings, err := settingsFromTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	rows, err := readScheduleRows(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var row scheduleRow
+	found := false
+	for _, candidate := range rows {
+		if candidate.id == id {
+			row, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE proxies SET monitoring_paused = ?, updated_at = ? WHERE id = ?`, paused, now.UTC().UnixMilli(), int64(id))
 	if err != nil {
 		return fmt.Errorf("set monitoring pause: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	if paused {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE proxy_id = ? AND source = 'scheduled' AND status = 'pending'`, int64(id)); err != nil {
-			return err
+	for _, kind := range []domain.CheckKind{domain.CheckAvailability, domain.CheckSpeed} {
+		oldEff := effective(row, settings, kind)
+		_, rev := scheduleFor(row, kind)
+		if err := reconcileOneScheduleTx(ctx, tx, id, kind, oldEff, oldEff, row.paused, paused, rev, now); err != nil {
+			return fmt.Errorf("set monitoring pause: %w", err)
 		}
 	}
 	return tx.Commit()
