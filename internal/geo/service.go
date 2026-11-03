@@ -180,6 +180,19 @@ func (s *Service) Get(ctx context.Context, ip netip.Addr, client *http.Client) (
 			return GeoView{}, ctx.Err()
 		}
 	}
+	// A caller can read the cache before another lookup stores its result and
+	// only get here after that lookup has left the map. Re-check the cache so
+	// such a caller reuses the stored result instead of asking the sources
+	// again.
+	if g, err := s.store.GetGeoCache(ctx, ip.String()); err == nil {
+		if v := s.cachedView(g); !v.Stale {
+			s.mu.Unlock()
+			return v, nil
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.mu.Unlock()
+		return GeoView{}, err
+	}
 	c := &call{done: make(chan struct{})}
 	s.inflight[ip] = c
 	s.mu.Unlock()

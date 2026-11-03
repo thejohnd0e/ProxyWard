@@ -277,6 +277,80 @@ func TestConcurrentCallersShareOneLookup(t *testing.T) {
 	}
 }
 
+// delayedStore returns the cache state a read observed at call time even when
+// the caller only resumes later, which makes the window between a cache miss
+// and the in-flight registration controllable. Only the first read after
+// blockNext is delayed, so the hook does not depend on how often a caller
+// consults the cache.
+type delayedStore struct {
+	*store.Store
+	mu       sync.Mutex
+	blocking bool
+	blocked  bool
+	read     chan struct{}
+	release  chan struct{}
+}
+
+func (d *delayedStore) blockNext() {
+	d.mu.Lock()
+	d.blocking = true
+	d.mu.Unlock()
+}
+
+func (d *delayedStore) GetGeoCache(ctx context.Context, ip string) (domain.Geo, error) {
+	d.mu.Lock()
+	block := d.blocking && !d.blocked
+	if block {
+		d.blocked = true
+	}
+	d.mu.Unlock()
+	g, err := d.Store.GetGeoCache(ctx, ip)
+	if block {
+		close(d.read)
+		<-d.release
+	}
+	return g, err
+}
+
+func TestACallerThatMissedTheCacheJoinsTheFinishedLookup(t *testing.T) {
+	r := newRig(t)
+	d := &delayedStore{Store: r.db, read: make(chan struct{}), release: make(chan struct{})}
+	r.svc = NewService(d, []providers.GeoSource{r.a.src, r.b.src}, r.clock)
+	r.a.gate = make(chan struct{})
+
+	first := make(chan GeoView, 1)
+	go func() {
+		v, _ := r.svc.Get(context.Background(), exit, http.DefaultClient)
+		first <- v
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for r.a.calls.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the first lookup never reached the source")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	d.blockNext()
+	second := make(chan GeoView, 1)
+	go func() {
+		v, _ := r.svc.Get(context.Background(), exit, http.DefaultClient)
+		second <- v
+	}()
+	<-d.read        // the second caller observed an empty cache
+	close(r.a.gate) // the first lookup stores its result and finishes
+	if v := <-first; v.Status != StatusFresh {
+		t.Fatalf("first caller: %+v", v)
+	}
+	close(d.release) // the delayed caller continues after the lookup finished
+	if v := <-second; v.Status != StatusFresh {
+		t.Fatalf("second caller: %+v", v)
+	}
+	if got := r.a.calls.Load(); got != 1 {
+		t.Fatalf("lookups = %d, want 1", got)
+	}
+}
+
 func TestCancelingTheFirstCallerDoesNotFailTheOthers(t *testing.T) {
 	r := newRig(t)
 	r.a.gate = make(chan struct{})
