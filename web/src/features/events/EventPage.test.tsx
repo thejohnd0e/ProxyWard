@@ -102,4 +102,23 @@ describe('EventPage', () => {
     mount();
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load events.');
   });
+
+  it('opens the export dialog with warnings about the file contents', async () => {
+    e.listEvents.mockResolvedValue({ events: [], next_cursor: null });
+    const user = mount();
+    await user.click(await screen.findByRole('button', { name: 'Export data' }));
+    expect(await screen.findByRole('dialog', { name: 'Export events and checks' })).toBeInTheDocument();
+    expect(screen.getByText(/exit IP/)).toBeInTheDocument();
+    expect(screen.getByText(/deleted proxies/)).toBeInTheDocument();
+  });
+
+  it('offers to reload the proxy list when the export cannot read it', async () => {
+    e.listProxies.mockRejectedValue(new Error('x'));
+    e.listEvents.mockResolvedValue({ events: [], next_cursor: null });
+    const user = mount();
+    await user.click(await screen.findByRole('button', { name: 'Export data' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load proxies.');
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(e.listProxies).toHaveBeenCalledTimes(2));
+  });
 });

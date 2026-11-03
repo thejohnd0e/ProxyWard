@@ -75,6 +75,19 @@ async function parseError(res: Response): Promise<ApiError> {
 }
 
 export async function api<T = void>(path: string, init: ApiInit = {}): Promise<T> {
+  const res = await request(path, init);
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/** Fetches a binary or file response with the same session and error handling. */
+export async function apiBlob(path: string, init: ApiInit = {}): Promise<Blob> {
+  const res = await request(path, init);
+  return res.blob();
+}
+
+async function request(path: string, init: ApiInit = {}): Promise<Response> {
   const method = init.method ?? (init.body !== undefined ? 'POST' : 'GET');
   const headers = new Headers({ Accept: 'application/json' });
   let body: string | undefined;
@@ -97,7 +110,5 @@ export async function api<T = void>(path: string, init: ApiInit = {}): Promise<T
     if (res.status === 401 && err.code === 'unauthenticated') unauthenticated?.();
     throw err;
   }
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return res;
 }

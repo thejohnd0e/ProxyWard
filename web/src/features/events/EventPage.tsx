@@ -5,6 +5,7 @@ import { listEvents, listProxies } from '../../api/endpoints';
 import type { AppEvent } from '../../api/types';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import { useVisiblePolling } from '../../lib/useVisiblePolling';
+import { ExportDialog } from './ExportDialog';
 
 const TELEGRAM_REASONS: Record<string, string> = {
   timeout: 'Telegram did not answer in time',
@@ -40,6 +41,9 @@ export function EventPage() {
   const [kind, setKind] = useState<KindFilter>('all');
   const [proxyId, setProxyId] = useState<number | null>(null);
   const [proxies, setProxies] = useState<Array<{ id: number; name: string }>>([]);
+  const [proxyError, setProxyError] = useState<string | null>(null);
+  const [proxyReload, setProxyReload] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const [head, setHead] = useState<AppEvent[]>([]);
   const [tail, setTail] = useState<AppEvent[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -51,12 +55,15 @@ export function EventPage() {
 
   useEffect(() => {
     const ctl = new AbortController();
+    setProxyError(null);
     listProxies(ctl.signal).then(
       (l) => setProxies(l.proxies.map((p) => ({ id: p.id, name: p.name }))),
-      () => undefined,
+      () => {
+        if (!ctl.signal.aborted) setProxyError('Could not load proxies.');
+      },
     );
     return () => ctl.abort();
-  }, []);
+  }, [proxyReload]);
 
   // Changing a filter starts the list over.
   useEffect(() => {
@@ -110,6 +117,9 @@ export function EventPage() {
           <h1 id="events-title">Events</h1>
           <p className="muted">When a proxy went down or recovered, and whether the Telegram message was sent.</p>
         </div>
+        <button type="button" className="button" onClick={() => setExporting(true)}>
+          Export data
+        </button>
       </div>
 
       <div className="toolbar">
@@ -186,6 +196,15 @@ export function EventPage() {
         <button type="button" className="button" disabled={more} onClick={() => void loadMore()}>
           Load more
         </button>
+      ) : null}
+
+      {exporting ? (
+        <ExportDialog
+          proxies={proxies}
+          proxyError={proxyError}
+          onRetryProxies={() => setProxyReload((n) => n + 1)}
+          onClose={() => setExporting(false)}
+        />
       ) : null}
     </section>
   );

@@ -1,6 +1,6 @@
 // One function per API route, so screens never build URLs or bodies by hand.
 
-import { api } from './client';
+import { api, apiBlob } from './client';
 import type {
   AvailabilityItem,
   AvailabilityPoint,
@@ -78,6 +78,14 @@ export const listEvents = (
 ) =>
   api<EventPage>('/api/events', {
     query: { limit: 50, proxy_id: filters.proxyId ?? undefined, kind: filters.kinds, cursor: filters.cursor },
+    signal,
+  });
+
+/** Downloads a secret-free JSON export of events and check results. */
+export const exportData = (input: { from: string; to: string; proxyIds: number[] }, signal?: AbortSignal) =>
+  apiBlob('/api/exports', {
+    method: 'POST',
+    body: { from: input.from, to: input.to, proxy_ids: input.proxyIds },
     signal,
   });
 
