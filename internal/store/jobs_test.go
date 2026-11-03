@@ -24,6 +24,16 @@ func addProxies(t *testing.T, db *Store, n int) []domain.ProxyID {
 	return ids
 }
 
+func enableSchedules(t *testing.T, db *Store, availability, speed bool) {
+	t.Helper()
+	settings := domain.DefaultSettings()
+	settings.Availability.Enabled = availability
+	settings.Speed.Enabled = speed
+	if err := db.PutSettings(context.Background(), settings, t0); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSettingsDefaultsRoundTripAndValidation(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
@@ -144,6 +154,7 @@ func TestManualEnqueuePromotesAScheduledPendingJob(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
 	id := addProxies(t, db, 1)[0]
+	enableSchedules(t, db, true, false)
 	later := t0.Add(20 * time.Second)
 	r, _ := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceScheduled, later, t0)
 	if len(r.New) != 1 || r.New[0].Source != domain.SourceScheduled {
@@ -173,6 +184,7 @@ func TestClaimRespectsDueTimeOrderAndProxyExclusion(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
 	ids := addProxies(t, db, 3)
+	enableSchedules(t, db, true, false)
 	_, _ = db.EnqueueJobs(ctx, []domain.ProxyID{ids[0]}, domain.CheckAvailability, domain.SourceScheduled, t0.Add(10*time.Second), t0)
 	_, _ = db.EnqueueJobs(ctx, []domain.ProxyID{ids[1]}, domain.CheckAvailability, domain.SourceScheduled, t0, t0)
 	_, _ = db.EnqueueJobs(ctx, []domain.ProxyID{ids[2]}, domain.CheckAvailability, domain.SourceScheduled, t0, t0)
@@ -248,6 +260,7 @@ func TestFinishCancelAndInterruptTransitions(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
 	ids := addProxies(t, db, 3)
+	enableSchedules(t, db, true, false)
 	_, _ = db.EnqueueJobs(ctx, ids, domain.CheckAvailability, domain.SourceManual, t0, t0)
 	running, _, _ := db.ClaimJob(ctx, domain.CheckAvailability, t0)
 
@@ -321,6 +334,7 @@ func TestCancelProxyJobsAndRemoveScheduled(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
 	ids := addProxies(t, db, 3)
+	enableSchedules(t, db, true, false)
 	_, _ = db.EnqueueJobs(ctx, ids, domain.CheckAvailability, domain.SourceScheduled, t0, t0)
 	_, _ = db.EnqueueJobs(ctx, ids[:1], domain.CheckSpeed, domain.SourceManual, t0, t0)
 	run, _, _ := db.ClaimJob(ctx, domain.CheckAvailability, t0)
@@ -425,6 +439,7 @@ func TestScheduledEnqueueSkipsProxiesThatAreNotDue(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
 	ids := addProxies(t, db, 2)
+	enableSchedules(t, db, true, true)
 	future := t0.Add(time.Hour)
 	if err := db.SetNextRun(ctx, ids[0], domain.CheckAvailability, &future); err != nil {
 		t.Fatal(err)

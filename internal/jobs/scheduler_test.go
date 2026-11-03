@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -338,6 +339,119 @@ func TestOldCompletionPreservesNewScheduleRevision(t *testing.T) {
 	}
 	if got, want := e.next(id, domain.CheckAvailability), changedAt.Add(time.Minute); got == nil || !got.Equal(want) {
 		t.Fatalf("completion overwrote new schedule: got %v, want %v (job %d)", got, want, job.ID)
+	}
+}
+
+func TestStaleTickCannotEnqueueDisabledSchedule(t *testing.T) {
+	e := newEnv(t, 3)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability.Enabled = true
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	manual, err := e.db.EnqueueJobs(ctx, []domain.ProxyID{e.ids[1], e.ids[2]}, domain.CheckAvailability, domain.SourceManual, epoch, epoch)
+	if err != nil || len(manual.New) != 2 {
+		t.Fatalf("manual jobs: %+v %v", manual, err)
+	}
+	running, ok, err := e.db.ClaimJob(ctx, domain.CheckAvailability, epoch)
+	if err != nil || !ok || running.ProxyID != e.ids[1] {
+		t.Fatalf("claim running manual job: %+v %v %v", running, ok, err)
+	}
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	e.sched.Jitter = func() time.Duration {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+		return 0
+	}
+	tickDone := make(chan error, 1)
+	go func() { tickDone <- e.sched.Tick(ctx, epoch) }()
+	<-entered // Tick has read the enabled snapshot but has not enqueued it.
+
+	settings.Availability.Enabled = false
+	if err := e.db.PutSettings(ctx, settings, epoch.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-tickDone; err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := e.db.ListActiveJobs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range active {
+		if job.Source == domain.SourceScheduled {
+			t.Fatalf("stale scheduler enqueued disabled work: %+v", job)
+		}
+	}
+	manualPending, runningPresent := false, false
+	for _, job := range active {
+		manualPending = manualPending || (job.ID == manual.New[1].ID && job.Status == domain.JobPending)
+		runningPresent = runningPresent || (job.ID == running.ID && job.Status == domain.JobRunning)
+	}
+	if !manualPending || !runningPresent {
+		t.Fatalf("disable must preserve manual pending and running work: %+v", active)
+	}
+	claimed, ok, err := e.db.ClaimJob(ctx, domain.CheckAvailability, epoch.Add(time.Minute))
+	if err != nil || !ok || claimed.Source != domain.SourceManual || claimed.ID != manual.New[1].ID {
+		t.Fatalf("manual work must remain claimable, not stale scheduled work: job=%+v ok=%v err=%v", claimed, ok, err)
+	}
+}
+
+func TestOverrideDisableRemovesPendingBeforeResponse(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability.Enabled = true
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	e.tick()
+	if len(e.active(domain.CheckAvailability)) != 1 {
+		t.Fatal("expected one scheduled job")
+	}
+	p, err := e.db.GetProxy(ctx, e.ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AvailabilitySchedule = &domain.Schedule{Enabled: false, Interval: time.Hour}
+	if err := e.db.UpdateProxyAt(ctx, e.ids[0], p, store.CredentialUpdate{}, epoch.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if jobs := e.active(domain.CheckAvailability); len(jobs) != 0 {
+		t.Fatalf("pending scheduled work survived override disable: %+v", jobs)
+	}
+}
+
+func TestStaleReconcileCannotEraseNewNextRun(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	next := epoch.Add(2 * time.Hour)
+	if err := e.db.SetNextRun(ctx, e.ids[0], domain.CheckAvailability, &next); err != nil {
+		t.Fatal(err)
+	}
+	settings.Availability.Interval = 3 * time.Hour
+	changedAt := epoch.Add(time.Minute)
+	if err := e.db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	want := changedAt.Add(3 * time.Hour)
+	if err := e.db.ReconcileSchedules(ctx, epoch); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.next(e.ids[0], domain.CheckAvailability); got == nil || !got.Equal(want) {
+		t.Fatalf("stale reconciliation erased new next run: got %v want %v", got, want)
 	}
 }
 

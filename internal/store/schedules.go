@@ -12,12 +12,14 @@ import (
 )
 
 type scheduleRow struct {
-	id              domain.ProxyID
-	paused          bool
-	availability    *domain.Schedule
-	speed           *domain.Schedule
-	availabilityRev int64
-	speedRev        int64
+	id               domain.ProxyID
+	paused           bool
+	availability     *domain.Schedule
+	speed            *domain.Schedule
+	availabilityRev  int64
+	speedRev         int64
+	nextAvailability *time.Time
+	nextSpeed        *time.Time
 }
 
 func settingsFromTx(ctx context.Context, tx *sql.Tx) (domain.Settings, error) {
@@ -38,7 +40,7 @@ func settingsFromTx(ctx context.Context, tx *sql.Tx) (domain.Settings, error) {
 
 func readScheduleRows(ctx context.Context, tx *sql.Tx) ([]scheduleRow, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id, availability_enabled, availability_interval_s, speed_enabled, speed_interval_s,
-		monitoring_paused, availability_revision, speed_revision FROM proxies ORDER BY id`)
+		monitoring_paused, availability_revision, speed_revision, next_availability_at, next_speed_at FROM proxies ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +48,8 @@ func readScheduleRows(ctx context.Context, tx *sql.Tx) ([]scheduleRow, error) {
 	var out []scheduleRow
 	for rows.Next() {
 		var row scheduleRow
-		var availOn, availInterval, speedOn, speedInterval sql.NullInt64
-		if err := rows.Scan(&row.id, &availOn, &availInterval, &speedOn, &speedInterval, &row.paused, &row.availabilityRev, &row.speedRev); err != nil {
+		var availOn, availInterval, speedOn, speedInterval, nextAvailability, nextSpeed sql.NullInt64
+		if err := rows.Scan(&row.id, &availOn, &availInterval, &speedOn, &speedInterval, &row.paused, &row.availabilityRev, &row.speedRev, &nextAvailability, &nextSpeed); err != nil {
 			return nil, err
 		}
 		if availOn.Valid {
@@ -56,9 +58,24 @@ func readScheduleRows(ctx context.Context, tx *sql.Tx) ([]scheduleRow, error) {
 		if speedOn.Valid {
 			row.speed = &domain.Schedule{Enabled: speedOn.Int64 == 1, Interval: time.Duration(speedInterval.Int64) * time.Second}
 		}
+		if nextAvailability.Valid {
+			at := time.UnixMilli(nextAvailability.Int64).UTC()
+			row.nextAvailability = &at
+		}
+		if nextSpeed.Valid {
+			at := time.UnixMilli(nextSpeed.Int64).UTC()
+			row.nextSpeed = &at
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func nextScheduleRun(row scheduleRow, kind domain.CheckKind) *time.Time {
+	if kind == domain.CheckSpeed {
+		return row.nextSpeed
+	}
+	return row.nextAvailability
 }
 
 func scheduleFor(row scheduleRow, kind domain.CheckKind) (*domain.Schedule, int64) {

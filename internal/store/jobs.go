@@ -64,6 +64,21 @@ func (s *Store) EnqueueJobs(ctx context.Context, ids []domain.ProxyID, kind doma
 		return res, fmt.Errorf("enqueue jobs: %w", err)
 	}
 	defer tx.Rollback()
+	var scheduledSettings domain.Settings
+	scheduledRows := map[domain.ProxyID]scheduleRow{}
+	if source == domain.SourceScheduled {
+		scheduledSettings, err = settingsFromTx(ctx, tx)
+		if err != nil {
+			return res, fmt.Errorf("enqueue jobs: %w", err)
+		}
+		rows, err := readScheduleRows(ctx, tx)
+		if err != nil {
+			return res, fmt.Errorf("enqueue jobs: %w", err)
+		}
+		for _, row := range rows {
+			scheduledRows[row.id] = row
+		}
+	}
 
 	seen := map[domain.ProxyID]bool{}
 	for _, id := range ids {
@@ -81,21 +96,11 @@ func (s *Store) EnqueueJobs(ctx context.Context, ids []domain.ProxyID, kind doma
 		}
 
 		if source == domain.SourceScheduled {
-			if paused {
+			row, exists := scheduledRows[id]
+			if !exists || paused || !effective(row, scheduledSettings, kind).Enabled {
 				continue
 			}
-			// Re-check inside the transaction that the proxy is still due. A
-			// check that finished after the scheduler took its snapshot has
-			// already stored a later next run, and must not be queued again.
-			col := "next_availability_at"
-			if kind == domain.CheckSpeed {
-				col = "next_speed_at"
-			}
-			var next sql.NullInt64
-			if err := tx.QueryRowContext(ctx, `SELECT `+col+` FROM proxies WHERE id = ?`, int64(id)).Scan(&next); err != nil {
-				return res, fmt.Errorf("enqueue jobs: %w", err)
-			}
-			if next.Valid && next.Int64 > now.UTC().UnixMilli() {
+			if next := nextScheduleRun(row, kind); next != nil && next.After(now) {
 				continue
 			}
 		}
@@ -116,15 +121,19 @@ func (s *Store) EnqueueJobs(ctx context.Context, ids []domain.ProxyID, kind doma
 			}
 			res.Existing = append(res.Existing, existing)
 		case errors.Is(err, sql.ErrNoRows):
+			dueAt := due
+			if source == domain.SourceScheduled && dueAt.Before(now) {
+				dueAt = now
+			}
 			r, err := tx.ExecContext(ctx,
 				`INSERT INTO jobs (proxy_id, kind, status, source, due_at, created_at) VALUES (?, ?, 'pending', ?, ?, ?)`,
-				int64(id), string(kind), source, due.UTC().UnixMilli(), now.UTC().UnixMilli())
+				int64(id), string(kind), source, dueAt.UTC().UnixMilli(), now.UTC().UnixMilli())
 			if err != nil {
 				return res, fmt.Errorf("enqueue jobs: %w", err)
 			}
 			jid, _ := r.LastInsertId()
 			res.New = append(res.New, domain.Job{ID: jid, ProxyID: id, Kind: kind, Status: domain.JobPending, Source: source,
-				DueAt: due.UTC(), CreatedAt: now.UTC()})
+				DueAt: dueAt.UTC(), CreatedAt: now.UTC()})
 		default:
 			return res, fmt.Errorf("enqueue jobs: %w", err)
 		}
@@ -146,16 +155,50 @@ func (s *Store) ClaimJob(ctx context.Context, kind domain.CheckKind, now time.Ti
 		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
 	}
 	defer tx.Rollback()
-	j, err := scanJob(tx.QueryRowContext(ctx,
-		`SELECT `+jobColumns+` FROM jobs j
-		 WHERE j.status = 'pending' AND j.kind = ? AND j.due_at <= ?
-		   AND NOT EXISTS (SELECT 1 FROM jobs r WHERE r.proxy_id = j.proxy_id AND r.status = 'running')
-		 ORDER BY j.due_at, j.id LIMIT 1`, string(kind), now.UTC().UnixMilli()))
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Job{}, false, nil
-	}
-	if err != nil {
-		return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+	var scheduledSettings *domain.Settings
+	var scheduledRows map[domain.ProxyID]scheduleRow
+	var j domain.Job
+	for {
+		candidate, err := scanJob(tx.QueryRowContext(ctx,
+			`SELECT `+jobColumns+` FROM jobs j
+			 WHERE j.status = 'pending' AND j.kind = ? AND j.due_at <= ?
+			   AND NOT EXISTS (SELECT 1 FROM jobs r WHERE r.proxy_id = j.proxy_id AND r.status = 'running')
+			 ORDER BY j.due_at, j.id LIMIT 1`, string(kind), now.UTC().UnixMilli()))
+		if errors.Is(err, sql.ErrNoRows) {
+			if err := tx.Commit(); err != nil {
+				return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+			}
+			return domain.Job{}, false, nil
+		}
+		if err != nil {
+			return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+		}
+		if candidate.Source == domain.SourceScheduled {
+			if scheduledSettings == nil {
+				settings, err := settingsFromTx(ctx, tx)
+				if err != nil {
+					return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+				}
+				rows, err := readScheduleRows(ctx, tx)
+				if err != nil {
+					return domain.Job{}, false, fmt.Errorf("claim job: %w", err)
+				}
+				scheduledSettings, scheduledRows = &settings, make(map[domain.ProxyID]scheduleRow, len(rows))
+				for _, row := range rows {
+					scheduledRows[row.id] = row
+				}
+			}
+			row, exists := scheduledRows[candidate.ProxyID]
+			next := nextScheduleRun(row, kind)
+			if !exists || row.paused || !effective(row, *scheduledSettings, kind).Enabled || (next != nil && next.After(now)) {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id = ? AND source = 'scheduled' AND status = 'pending'`, candidate.ID); err != nil {
+					return domain.Job{}, false, fmt.Errorf("discard ineligible scheduled job: %w", err)
+				}
+				continue
+			}
+		}
+		j = candidate
+		break
 	}
 	ms := now.UTC().UnixMilli()
 	var revision int64
