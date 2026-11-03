@@ -1,10 +1,12 @@
-/* Design tokens. Neutral macOS-like surfaces, system fonts, one accent.
-   The theme follows the system unless data-theme is "light" or "dark". */
+/* Design tokens. Operations Workspace: layered slate surfaces, one blue
+   accent and semantic status colours. The theme follows the system unless
+   data-theme is "light" or "dark". */
 
 :root {
   color-scheme: light dark;
 
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, Roboto,
+    'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 
   --text-xs: 0.75rem;
@@ -12,10 +14,12 @@
   --text-md: 0.9375rem;
   --text-lg: 1.125rem;
   --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -23,85 +27,127 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
 
-  --sidebar-width: 224px;
+  --control-h: 36px;
+  --control-h-sm: 30px;
+  --control-h-lg: 44px;
+
+  --sidebar-width: 248px;
 
   /* Light */
-  --bg: #f5f5f7;
+  --bg: #f2f5fa;
+  --bg-glow: radial-gradient(1100px 520px at 78% -12%, rgb(31 111 235 / 0.09), transparent 60%);
   --surface: #ffffff;
-  --surface-2: #f2f2f4;
-  --text: #1d1d1f;
-  --text-2: #5f5f64;
-  --line: #d2d2d7;
-  --line-soft: #e6e6eb;
-  --accent: #0066cc;
-  --accent-hover: #0058b0;
+  --surface-2: #f7f9fc;
+  --surface-3: #edf2f9;
+  --panel: #ffffff;
+  --panel-2: #f9fbfe;
+  --text: #14202f;
+  --text-2: #5c6d84;
+  --text-3: #8494a8;
+  --line: #dbe3ee;
+  --line-soft: #e7edf6;
+  --line-strong: #c5d2e3;
+  --accent: #1f6feb;
+  --accent-hover: #1659c4;
+  --accent-soft: rgb(31 111 235 / 0.1);
+  --accent-soft-2: rgb(31 111 235 / 0.16);
   --on-accent: #ffffff;
-  --focus: #0a84ff;
-  --up: #1a7f37;
-  --up-bg: #e6f4ea;
-  --down: #c5221f;
-  --down-bg: #fce8e6;
-  --warn: #8a5a00;
-  --warn-bg: #fff4d6;
-  --muted-state: #5f5f64;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 6px 24px rgb(0 0 0 / 0.08);
-  --backdrop: rgb(0 0 0 / 0.35);
-  --chart-0: #0066cc;
-  --chart-1: #8a4fc7;
+  --focus: #1f6feb;
+  --up: #0f8a5f;
+  --up-bg: #e2f7ee;
+  --down: #cf3044;
+  --down-bg: #fdecef;
+  --warn: #986207;
+  --warn-bg: #fff4dd;
+  --muted-state: #6b7c91;
+  --shadow-sm: 0 1px 2px rgb(16 32 56 / 0.06);
+  --shadow: 0 1px 2px rgb(16 32 56 / 0.05), 0 10px 30px rgb(16 32 56 / 0.09);
+  --shadow-lg: 0 2px 6px rgb(16 32 56 / 0.08), 0 24px 64px rgb(16 32 56 / 0.16);
+  --backdrop: rgb(12 22 38 / 0.42);
+  --sidebar-bg: linear-gradient(180deg, #fbfcff 0%, #f4f7fc 100%);
+  --chart-0: #1f6feb;
+  --chart-1: #7c5cff;
+  --chart-2: #0f8a5f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #1c1c1e;
-    --surface: #2c2c2e;
-    --surface-2: #343437;
-    --text: #f5f5f7;
-    --text-2: #a8a8ae;
-    --line: #48484c;
-    --line-soft: #3a3a3d;
-    --accent: #4da3ff;
-    --accent-hover: #70b4ff;
-    --on-accent: #0b0b0c;
-    --focus: #64b0ff;
-    --up: #53d170;
-    --up-bg: #1d3a26;
-    --down: #ff7b72;
-    --down-bg: #4a2321;
-    --warn: #ffc247;
-    --warn-bg: #43361a;
-    --muted-state: #a8a8ae;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.5);
-    --backdrop: rgb(0 0 0 / 0.55);
-    --chart-0: #4da3ff;
-    --chart-1: #c79bff;
+    --bg: #0b1220;
+    --bg-glow: radial-gradient(1100px 560px at 78% -14%, rgb(97 168 255 / 0.12), transparent 62%);
+    --surface: #121b2b;
+    --surface-2: #162134;
+    --surface-3: #1c2a41;
+    --panel: #121b2b;
+    --panel-2: #152034;
+    --text: #e7eef8;
+    --text-2: #9aabc2;
+    --text-3: #7487a1;
+    --line: #253349;
+    --line-soft: #1d293c;
+    --line-strong: #35476a;
+    --accent: #61a8ff;
+    --accent-hover: #8cc0ff;
+    --accent-soft: rgb(97 168 255 / 0.14);
+    --accent-soft-2: rgb(97 168 255 / 0.22);
+    --on-accent: #07111f;
+    --focus: #7db8ff;
+    --up: #45d39a;
+    --up-bg: rgb(69 211 154 / 0.13);
+    --down: #ff7085;
+    --down-bg: rgb(255 112 133 / 0.12);
+    --warn: #f2b55e;
+    --warn-bg: rgb(242 181 94 / 0.13);
+    --muted-state: #8497b0;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 14px 40px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 2px 8px rgb(0 0 0 / 0.45), 0 28px 72px rgb(0 0 0 / 0.55);
+    --backdrop: rgb(3 8 16 / 0.66);
+    --sidebar-bg: linear-gradient(180deg, #0e1727 0%, #0b1220 100%);
+    --chart-0: #61a8ff;
+    --chart-1: #a78bfa;
+    --chart-2: #45d39a;
   }
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #1c1c1e;
-  --surface: #2c2c2e;
-  --surface-2: #343437;
-  --text: #f5f5f7;
-  --text-2: #a8a8ae;
-  --line: #48484c;
-  --line-soft: #3a3a3d;
-  --accent: #4da3ff;
-  --accent-hover: #70b4ff;
-  --on-accent: #0b0b0c;
-  --focus: #64b0ff;
-  --up: #53d170;
-  --up-bg: #1d3a26;
-  --down: #ff7b72;
-  --down-bg: #4a2321;
-  --warn: #ffc247;
-  --warn-bg: #43361a;
-  --muted-state: #a8a8ae;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.5);
-  --backdrop: rgb(0 0 0 / 0.55);
-  --chart-0: #4da3ff;
-  --chart-1: #c79bff;
+  --bg: #0b1220;
+  --bg-glow: radial-gradient(1100px 560px at 78% -14%, rgb(97 168 255 / 0.12), transparent 62%);
+  --surface: #121b2b;
+  --surface-2: #162134;
+  --surface-3: #1c2a41;
+  --panel: #121b2b;
+  --panel-2: #152034;
+  --text: #e7eef8;
+  --text-2: #9aabc2;
+  --text-3: #7487a1;
+  --line: #253349;
+  --line-soft: #1d293c;
+  --line-strong: #35476a;
+  --accent: #61a8ff;
+  --accent-hover: #8cc0ff;
+  --accent-soft: rgb(97 168 255 / 0.14);
+  --accent-soft-2: rgb(97 168 255 / 0.22);
+  --on-accent: #07111f;
+  --focus: #7db8ff;
+  --up: #45d39a;
+  --up-bg: rgb(69 211 154 / 0.13);
+  --down: #ff7085;
+  --down-bg: rgb(255 112 133 / 0.12);
+  --warn: #f2b55e;
+  --warn-bg: rgb(242 181 94 / 0.13);
+  --muted-state: #8497b0;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 14px 40px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 2px 8px rgb(0 0 0 / 0.45), 0 28px 72px rgb(0 0 0 / 0.55);
+  --backdrop: rgb(3 8 16 / 0.66);
+  --sidebar-bg: linear-gradient(180deg, #0e1727 0%, #0b1220 100%);
+  --chart-0: #61a8ff;
+  --chart-1: #a78bfa;
+  --chart-2: #45d39a;
 }
 
 :root[data-theme='light'] {

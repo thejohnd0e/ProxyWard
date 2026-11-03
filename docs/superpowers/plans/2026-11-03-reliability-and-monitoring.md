@@ -178,9 +178,9 @@ Schema-changing tasks run sequentially even when their business logic is indepen
 
 **Interfaces:** `GET /api/overview?window=24h` returns one bounded snapshot: counts, current incidents, queue/cooldowns and existing observation summaries; later tasks add fields. It never probes. Create reusable semantic UI patterns named in the spec; choose final layout only after UX1 approval.
 
-- [ ] Translate the approved direction into token roles, component states and responsive layouts. Name every intentional off-grid exception; keep existing font/licensing constraints unless the user approves a change.
+- [x] Translate the approved direction into token roles, component states and responsive layouts. Name every intentional off-grid exception; keep existing font/licensing constraints unless the user approves a change.
 - [ ] Add failing component/API tests for counts that reconcile, actionable filters, empty/error/partial states, keyboard navigation, paused/stale distinction and zero hidden network probes. Add screenshot assertions using deterministic fixtures, not current timestamps.
-- [ ] Implement approved shell/Overview and shared patterns; migrate existing screens incrementally, keeping deep links and functional controls. Do not display placeholders as implemented metrics.
+- [x] Implement approved shell/Overview and shared patterns; migrate existing screens incrementally, keeping deep links and functional controls. Do not display placeholders as implemented metrics.
 - [ ] Run unit/typecheck/build/browser tests; inspect desktop/mobile/light/dark/200%-zoom screenshots and keyboard behavior. Use a pinned accessibility checker after dependency review; manual review remains required.
 - [ ] Present Before/After/Why for user acceptance. Commit the approved slice; no unrelated backend refactor.
 

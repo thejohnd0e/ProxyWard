@@ -159,6 +159,7 @@ export function EventPage() {
     <section aria-labelledby="events-title">
       <div className="page-head">
         <div>
+          <p className="eyebrow">Activity</p>
           <h1 id="events-title">Events</h1>
           <p className="muted">When a proxy went down or recovered, and whether the Telegram message was sent.</p>
         </div>

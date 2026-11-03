@@ -179,9 +179,19 @@ export function ProxyTable({ proxies, geoConfigured, sort, onSort, selected, onT
                 {p.uptime.percent === null ? (
                   <span className="muted">—</span>
                 ) : (
-                  <span title="Share of definite checks (up or down) in the last 24 hours">
-                    {formatPercent(p.uptime.percent)} of {p.uptime.samples} {p.uptime.samples === 1 ? 'check' : 'checks'}
-                  </span>
+                  <div className="table-cell-stack" title="Share of definite checks (up or down) in the last 24 hours">
+                    <div className="mini-bar" aria-hidden="true">
+                      <div
+                        className={`mini-bar__fill${
+                          p.uptime.percent >= 90 ? '' : p.uptime.percent >= 50 ? ' mini-bar__fill--warn' : ' mini-bar__fill--down'
+                        }`}
+                        style={{ width: `${Math.max(3, Math.min(100, p.uptime.percent))}%` }}
+                      />
+                    </div>
+                    <span>
+                      {formatPercent(p.uptime.percent)} of {p.uptime.samples} {p.uptime.samples === 1 ? 'check' : 'checks'}
+                    </span>
+                  </div>
                 )}
               </td>
               <td data-label="Actions" className="col-actions">

@@ -108,6 +108,7 @@ export function ProxyPage() {
     <section aria-labelledby="proxies-title">
       <div className="page-head">
         <div>
+          <p className="eyebrow">Fleet</p>
           <h1 id="proxies-title">Proxies</h1>
           <p className="muted" aria-live="polite">
             {data
@@ -137,6 +138,21 @@ export function ProxyPage() {
           {notice.text}
         </p>
       ) : null}
+
+      <div className="filter-chips" role="group" aria-label="Quick state filters">
+        {(['up', 'down', 'indeterminate', 'unknown'] as const).map((state) => (
+          <button
+            key={state}
+            type="button"
+            className={`filter-chip filter-chip--${state}`}
+            aria-pressed={stateFilter === state}
+            onClick={() => setStateFilter((current) => (current === state ? 'all' : state))}
+          >
+            <span className="filter-chip__dot" aria-hidden="true" />
+            {state === 'indeterminate' ? 'Indeterminate' : state.charAt(0).toUpperCase() + state.slice(1)} {counts[state]}
+          </button>
+        ))}
+      </div>
 
       <div className="toolbar">
         <div className="field field--grow">

@@ -138,10 +138,13 @@ export function ProxyDetail() {
   return (
     <section aria-labelledby="detail-title">
       <p>
-        <Link to="/proxies">Back to proxies</Link>
+        <Link className="back-link" to="/proxies">
+          Back to proxies
+        </Link>
       </p>
       <div className="page-head">
         <div>
+          <p className="eyebrow">Proxy</p>
           <h1 id="detail-title">{proxy.name}</h1>
           <p className="mono muted">
             {proxy.protocol}://{proxy.host}:{proxy.port}
