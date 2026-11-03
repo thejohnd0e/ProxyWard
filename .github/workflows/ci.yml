@@ -10,13 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  # All jobs share a pinned image instead of ubuntu-latest, which now resolves
-  # to Ubuntu 26.04. Playwright 1.56.1 in web/package.json has no browser
-  # dependencies for 26.04, so its install step fails there. Revisit after
-  # upgrading Playwright to a release that supports 26.04.
   go:
     name: Go tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -29,7 +25,7 @@ jobs:
 
   web:
     name: Web interface
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,7 +54,7 @@ jobs:
 
   docker:
     name: Docker image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose file
