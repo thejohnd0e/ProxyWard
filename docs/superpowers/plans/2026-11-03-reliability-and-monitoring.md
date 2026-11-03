@@ -130,11 +130,11 @@ Schema-changing tasks run sequentially even when their business logic is indepen
 
 **Interfaces:** Existing `getSettings(signal)`/chart endpoints remain. Each independent data region exposes loading/error/retry/last-good-data without resetting forms or other successful regions.
 
-- [ ] Add tests for initial Settings 500 -> visible alert/Retry -> success; polling 500 retains data and edits; one chart failure does not hide the other; range change cannot label the old chart as new.
-- [ ] Run `npm --prefix web test -- src/features/settings/SettingsPage.test.tsx src/features/proxies/ProxyDetail.test.tsx`; confirm missing error/retry behavior fails.
-- [ ] Handle errors in polling callers, retry explicitly, and invalidate chart requests/data per proxy/range. Distinguish unavailable from a genuine empty history.
-- [ ] Run frontend tests/typecheck and browser 500/offline/recovery cases. Require no indefinite loading without recovery controls.
-- [ ] Review and commit.
+- [x] Add tests for initial Settings 500 -> visible alert/Retry -> success; polling 500 retains data and edits; one chart failure does not hide the other; range change cannot label the old chart as new.
+- [x] Run `npm --prefix web test -- src/features/settings/SettingsPage.test.tsx src/features/proxies/ProxyDetail.test.tsx`; confirmed the missing error/retry behavior failed first.
+- [x] Handle errors in polling callers, retry explicitly, and invalidate chart requests/data per proxy/range. Distinguish unavailable from a genuine empty history.
+- [x] Run frontend tests/typecheck and browser 500/offline/recovery cases. Require no indefinite loading without recovery controls.
+- [x] Review and commit.
 
 ### Task 6: Availability cooldowns
 

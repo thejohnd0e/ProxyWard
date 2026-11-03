@@ -82,9 +82,14 @@ export function SettingsPage() {
   useVisiblePolling(
     useCallback(
       async (signal: AbortSignal) => {
-        const s = await getSettings(signal);
-        setLive(s);
-        setSettings((prev) => prev ?? s);
+        try {
+          const s = await getSettings(signal);
+          setLive(s);
+          setSettings((prev) => prev ?? s);
+          setLoadError(null);
+        } catch (err) {
+          if (!signal.aborted) setLoadError(errorText(err));
+        }
       },
       [],
     ),
@@ -93,9 +98,12 @@ export function SettingsPage() {
 
   if (!settings) {
     return loadError ? (
-      <p role="alert" className="notice notice--error">
-        {loadError}
-      </p>
+      <div className="notice notice--error">
+        <p role="alert">{loadError}</p>
+        <button type="button" className="button button--small" onClick={() => void refresh()}>
+          Retry settings
+        </button>
+      </div>
     ) : (
       <p className="loading" role="status">
         Loading…
@@ -106,6 +114,14 @@ export function SettingsPage() {
 
   return (
     <section aria-label="Settings options">
+      {loadError ? (
+        <div className="notice notice--error">
+          <p role="alert">Showing the last loaded data. {loadError}</p>
+          <button type="button" className="button button--small" onClick={() => void refresh()}>
+            Retry settings
+          </button>
+        </div>
+      ) : null}
       <div className="cards">
         <AppearanceCard />
         <MonitoringCard settings={settings} live={current} onSaved={setSettings} refresh={refresh} />

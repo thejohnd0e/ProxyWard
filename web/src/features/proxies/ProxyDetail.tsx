@@ -13,6 +13,7 @@ import { LineChart, StateStrip } from '../history/charts';
 import { ProxyDialog } from './ProxyDialog';
 
 type Range = '24h' | '7d' | '30d';
+type ChartLoadState<T> = { key: string; data: Chart<T> | null; error: boolean; loading: boolean };
 
 const RANGES: Record<Range, { label: string; ms: number; points: number }> = {
   '24h': { label: 'Last 24 hours', ms: 24 * 3600_000, points: 96 },
@@ -37,8 +38,10 @@ export function ProxyDetail() {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [range, setRange] = useState<Range>('24h');
-  const [avail, setAvail] = useState<Chart<AvailabilityPoint> | null>(null);
-  const [speed, setSpeed] = useState<Chart<SpeedPoint> | null>(null);
+  const [avail, setAvail] = useState<ChartLoadState<AvailabilityPoint> | null>(null);
+  const [speed, setSpeed] = useState<ChartLoadState<SpeedPoint> | null>(null);
+  const [availabilityRetry, setAvailabilityRetry] = useState(0);
+  const [speedRetry, setSpeedRetry] = useState(0);
   const [tab, setTab] = useState<'availability' | 'speed'>('availability');
   const [dialog, setDialog] = useState<'edit' | 'delete' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -67,17 +70,36 @@ export function ProxyDetail() {
   }, [id]);
 
   const refreshKey = `${proxy?.status.checked_at ?? ''}|${proxy?.speed?.checked_at ?? ''}`;
+  const chartKey = `${id}|${range}`;
+  const proxyLoaded = proxy !== null;
 
   useEffect(() => {
-    if (!Number.isInteger(id) || id <= 0) return;
+    if (!Number.isInteger(id) || id <= 0 || !proxyLoaded) return;
     const ctl = new AbortController();
     const to = new Date();
     const from = new Date(to.getTime() - RANGES[range].ms);
     const pts = RANGES[range].points;
-    availabilityChart(id, from, to, pts, ctl.signal).then(setAvail, () => undefined);
-    speedChart(id, from, to, pts, ctl.signal).then(setSpeed, () => undefined);
+    setAvail((prev) => ({ key: chartKey, data: prev?.key === chartKey ? prev.data : null, error: false, loading: true }));
+    availabilityChart(id, from, to, pts, ctl.signal).then(
+      (data) => { if (!ctl.signal.aborted) setAvail({ key: chartKey, data, error: false, loading: false }); },
+      () => { if (!ctl.signal.aborted) setAvail((prev) => ({ key: chartKey, data: prev?.key === chartKey ? prev.data : null, error: true, loading: false })); },
+    );
     return () => ctl.abort();
-  }, [id, range, refreshKey]);
+  }, [id, range, refreshKey, availabilityRetry, chartKey, proxyLoaded]);
+
+  useEffect(() => {
+    if (!Number.isInteger(id) || id <= 0 || !proxyLoaded) return;
+    const ctl = new AbortController();
+    const to = new Date();
+    const from = new Date(to.getTime() - RANGES[range].ms);
+    const pts = RANGES[range].points;
+    setSpeed((prev) => ({ key: chartKey, data: prev?.key === chartKey ? prev.data : null, error: false, loading: true }));
+    speedChart(id, from, to, pts, ctl.signal).then(
+      (data) => { if (!ctl.signal.aborted) setSpeed({ key: chartKey, data, error: false, loading: false }); },
+      () => { if (!ctl.signal.aborted) setSpeed((prev) => ({ key: chartKey, data: prev?.key === chartKey ? prev.data : null, error: true, loading: false })); },
+    );
+    return () => ctl.abort();
+  }, [id, range, refreshKey, speedRetry, chartKey, proxyLoaded]);
 
   if (!Number.isInteger(id) || id <= 0 || notFound) {
     return (
@@ -189,26 +211,44 @@ export function ProxyDetail() {
       </div>
 
       <div className="charts">
-        {avail ? <StateStrip points={avail.points} /> : null}
-        {avail ? (
+        <section role="region" aria-label="Availability chart">
+          {avail?.key === chartKey && avail.error ? (
+            <div className="notice notice--error">
+              <p role="alert" aria-label="Availability chart unavailable">Availability history is unavailable.{avail.data ? ' Showing the last loaded data.' : ''}</p>
+              <button type="button" className="button button--small" onClick={() => setAvailabilityRetry((n) => n + 1)}>Retry availability chart</button>
+            </div>
+          ) : null}
+          {(!avail || avail.key !== chartKey || avail.loading) && !(avail?.key === chartKey && avail.error) ? <p role="status" aria-label="Availability chart loading">Loading availability history…</p> : null}
+        {avail?.key === chartKey && avail.data ? <StateStrip points={avail.data.points} /> : null}
+        {avail?.key === chartKey && avail.data ? (
           <LineChart
             title="Latency of successful checks"
             unit="ms"
-            times={avail.points.map((p) => p.t)}
-            series={[{ name: 'Latency', values: avail.points.map((p) => (p.avg_duration_ms === null ? null : p.avg_duration_ms)) }]}
+            times={avail.data.points.map((p) => p.t)}
+            series={[{ name: 'Latency', values: avail.data.points.map((p) => (p.avg_duration_ms === null ? null : p.avg_duration_ms)) }]}
           />
         ) : null}
-        {speed ? (
+        </section>
+        <section role="region" aria-label="Speed chart">
+        {speed?.key === chartKey && speed.error ? (
+          <div className="notice notice--error">
+            <p role="alert" aria-label="Speed chart unavailable">Speed history is unavailable.{speed.data ? ' Showing the last loaded data.' : ''}</p>
+            <button type="button" className="button button--small" onClick={() => setSpeedRetry((n) => n + 1)}>Retry speed chart</button>
+          </div>
+        ) : null}
+        {(!speed || speed.key !== chartKey || speed.loading) && !(speed?.key === chartKey && speed.error) ? <p role="status" aria-label="Speed chart loading">Loading speed history…</p> : null}
+        {speed?.key === chartKey && speed.data ? (
           <LineChart
             title="Speed"
             unit="Mbps"
-            times={speed.points.map((p) => p.t)}
+            times={speed.data.points.map((p) => p.t)}
             series={[
-              { name: 'Download', values: speed.points.map((p) => p.download_mbps) },
-              { name: 'Upload', values: speed.points.map((p) => p.upload_mbps) },
+              { name: 'Download', values: speed.data.points.map((p) => p.download_mbps) },
+              { name: 'Upload', values: speed.data.points.map((p) => p.upload_mbps) },
             ]}
           />
         ) : null}
+        </section>
       </div>
 
       <div className="tabs" role="tablist" aria-label="History">

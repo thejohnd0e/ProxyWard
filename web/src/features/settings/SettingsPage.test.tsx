@@ -48,6 +48,30 @@ describe('SettingsPage', () => {
     expect(c.getByLabelText('Check availability on a schedule')).not.toBeChecked();
   });
 
+  it('offers retry when the initial settings request fails', async () => {
+    e.getSettings.mockRejectedValueOnce(new ApiError(500, 'server_error', 'Settings are unavailable.'));
+    const user = mount();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Settings are unavailable.');
+    await user.click(screen.getByRole('button', { name: 'Retry settings' }));
+    expect(await screen.findByRole('region', { name: 'Monitoring' })).toBeInTheDocument();
+  });
+
+  it('retains settings edits after a polling failure and can recover', async () => {
+    const user = mount();
+    const c = within(await screen.findByRole('region', { name: 'Monitoring' }));
+    await user.clear(c.getByLabelText('Failures before a proxy is reported down'));
+    await user.type(c.getByLabelText('Failures before a proxy is reported down'), '4');
+    e.getSettings.mockRejectedValueOnce(new ApiError(500, 'server_error', 'Settings are temporarily unavailable.'));
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Settings are temporarily unavailable.');
+    expect(c.getByLabelText('Failures before a proxy is reported down')).toHaveValue('4');
+    await user.click(screen.getByRole('button', { name: 'Retry settings' }));
+    expect(await screen.findByRole('button', { name: 'Save monitoring settings' })).toBeEnabled();
+    expect(c.getByLabelText('Failures before a proxy is reported down')).toHaveValue('4');
+  });
+
   it('saves monitoring settings, converting hours to minutes', async () => {
     const user = mount();
     const c = within(await screen.findByRole('region', { name: 'Monitoring' }));
