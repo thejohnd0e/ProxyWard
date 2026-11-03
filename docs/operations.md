@@ -80,6 +80,19 @@ docker compose up -d
 - The archive is validated before anything changes: exactly the two expected regular files, a 32-byte key and a database that passes `PRAGMA integrity_check`. Path tricks, extra entries, symlinks and duplicates are rejected.
 - To test a backup without touching production, restore into a disposable project: `PORT=8081 docker compose -p pcrestore run --rm -T proxyward restore --input - < backup.tar.gz`, then `docker compose -p pcrestore up -d`, check it, and `docker compose -p pcrestore down -v`.
 
+## Export for agents
+
+`Events > Export data` downloads one JSON file with the events and the availability and speed results of the chosen proxies inside the chosen period. The defaults are the last 24 hours and all proxies. The file is produced on request, never stored on the server and never cached (`Cache-Control: no-store`); the download location is chosen by the browser on the computer that opens the interface.
+
+- Contents: `schema_version`, `generated_at`, the echoed period, the selected proxies (id, name, protocol, host, port), and the events, availability results and speed results. Record ids and millisecond durations are included; a rate that does not exist is `null`, never zero.
+- Never included: proxy usernames and passwords, the Telegram token, settings, sessions, the secrets key, and free-form event or failure messages. Proxy names are user-written text and exit IPs are sensitive: read the file before handing it to an agent or a person.
+- Events of deleted proxies are not exported: their `proxy_id` is gone, so they cannot be attributed to a selected proxy.
+- Only stored history is exported. The retention setting (default 30 days) removes older rows hourly.
+- One export carries at most 100,000 records across events, availability and speed. A larger selection is refused with an actionable error instead of a silently truncated file; narrow the period or the selection.
+- The export runs in one read transaction, so all arrays describe the same database snapshot while checks keep writing.
+
+The export is not a backup: it cannot restore the database and has no secrets key. Use `proxyward backup` for that (see above).
+
 ## Upgrade
 
 ```sh

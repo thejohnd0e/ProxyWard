@@ -105,6 +105,12 @@ go run ./cmd/proxyward admin set-password
 
 The password needs at least 12 characters, and resetting it revokes all sessions. The data directory also holds `secrets.key`, which encrypts stored secrets: back it up together with `state.db`. If the key is lost while encrypted records exist, the server refuses to start rather than creating a new key. Session cookies are not marked Secure unless `PROXYWARD_SESSION_SECURE=true`, so plain-HTTP LAN use works but sends the cookie unencrypted.
 
+## Export for agents
+
+The Events page can download one JSON file with events and availability and speed results for a chosen period and set of proxies (the last 24 hours and all proxies by default). The server builds the file on request and never writes it itself: your browser saves it wherever you choose, including a network share you can open. The file contains no proxy passwords, Telegram token, settings or session data, but it does list proxy names, addresses and exit IPs, so read it before sharing it. Only history that is still stored is exported (see the retention setting), and events of deleted proxies are left out because they can no longer be attributed to a proxy.
+
+This is an analysis export, not a backup: use `proxyward backup` for a restorable copy of the database and secrets key.
+
 ## Build and tests
 
 ```text

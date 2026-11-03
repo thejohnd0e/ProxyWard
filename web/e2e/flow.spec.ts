@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { fixtures, setTheme, shot, telegramMessages, type Fixtures } from './helpers';
 
@@ -182,6 +183,43 @@ test('reports down proxies as events and sends them to Telegram once configured'
   await page.getByRole('link', { name: 'Events' }).click();
   await expect(page.getByText(/Sent to Telegram/).first()).toBeVisible({ timeout: 20_000 });
   await shot(page, info, 'events');
+});
+
+test('downloads a JSON export of the selected proxy and period', async ({}, info) => {
+  const name = fx.proxies[0]!.name;
+  await page.getByRole('link', { name: 'Events' }).click();
+  await page.getByRole('button', { name: 'Export data' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export events and checks' });
+  await expect(dialog.getByRole('checkbox', { name: 'Select all proxies' })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'Select all proxies' }).uncheck();
+  await dialog.getByRole('checkbox', { name, exact: true }).check();
+  await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeChecked();
+  await shot(page, info, 'export-dialog');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Download export' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('proxyward-export.json');
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const raw = readFileSync(path!, 'utf8');
+  const doc = JSON.parse(raw) as {
+    schema_version: number;
+    proxies: Array<{ id: number; name: string }>;
+    availability: unknown[];
+    speed: unknown[];
+  };
+  expect(doc.schema_version).toBe(1);
+  expect(doc.proxies).toHaveLength(1);
+  expect(doc.proxies[0]!.name).toBe(name);
+  expect(doc.availability.length).toBeGreaterThan(0);
+
+  // The file is secret-free: no proxy password and no Telegram token.
+  expect(raw).not.toContain(fx.telegram_token);
+  for (const p of fx.proxies) {
+    if (p.password) expect(raw).not.toContain(p.password);
+  }
 });
 
 test('shows history and charts on the detail page', async ({}, info) => {

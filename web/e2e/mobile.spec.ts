@@ -40,6 +40,21 @@ test('the dashboard works at 375 px without sideways scrolling', async ({ page }
   await shot(page, info, 'detail');
 });
 
+test('the export dialog fits and stays usable on a phone', async ({ page }, info) => {
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Events', exact: true }).click();
+  await page.getByRole('button', { name: 'Export data' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export events and checks' });
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box!.width).toBeLessThanOrEqual(375);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, 'the export dialog overflows horizontally').toBeLessThanOrEqual(0);
+  await shot(page, info, 'export-dialog');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+});
+
 test('dialogs fit and can be operated on a phone', async ({ page }, info) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Add proxy' }).click();

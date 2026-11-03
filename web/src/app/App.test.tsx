@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import pkg from '../../package.json';
 import { ApiError, getCsrfToken, setCsrfToken } from '../api/client';
 import * as endpoints from '../api/endpoints';
 import { makeProxy, makeSettings } from '../test/fixtures';
@@ -54,7 +55,7 @@ describe('authentication', () => {
     e.session.mockResolvedValue({ authenticated: true, csrf_token: 'csrf-version' });
     mount();
     const brand = await screen.findByText(/ProxyWard/, { selector: '.brand' });
-    expect(brand).toHaveTextContent('ProxyWard v0.1.1');
+    expect(brand).toHaveTextContent(`ProxyWard v${pkg.version}`);
   });
 
   it('opens settings in a dialog without leaving the current page', async () => {
