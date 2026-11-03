@@ -72,6 +72,18 @@ describe('ExportDialog', () => {
     expect(signal).toBeDefined();
   });
 
+  it('includes a result recorded at the moment the dialog opens', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T09:05:30.500Z'));
+    try {
+      mount();
+      const to = screen.getByLabelText('End of the period') as HTMLInputElement;
+      expect(new Date(to.value).getTime()).toBeGreaterThanOrEqual(Date.now());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('downloads the JSON and closes when the server answers', async () => {
     e.exportData.mockResolvedValue(new Blob(['{"schema_version":1}'], { type: 'application/json' }));
     const { user, onClose } = mount();

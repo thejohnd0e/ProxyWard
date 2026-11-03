@@ -8,7 +8,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Formats a date for a datetime-local input, in this computer's time zone. */
 function toLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function saveFile(blob: Blob): void {
@@ -40,7 +40,9 @@ interface Props {
 export function ExportDialog({ proxies, proxyError, onRetryProxies, onClose }: Props) {
   const uid = useId();
   const [from, setFrom] = useState(() => toLocalInput(new Date(Date.now() - DAY_MS)));
-  const [to, setTo] = useState(() => toLocalInput(new Date()));
+  // Round the default end up to the next whole second so a check recorded just
+  // before the dialog opened is inside the period, not a fraction outside it.
+  const [to, setTo] = useState(() => toLocalInput(new Date(Math.ceil(Date.now() / 1000) * 1000)));
   const [selected, setSelected] = useState<Set<number>>(() => new Set(proxies.map((p) => p.id)));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,11 +134,11 @@ export function ExportDialog({ proxies, proxyError, onRetryProxies, onClose }: P
         <div className="field-row">
           <div className="field field--grow">
             <label htmlFor={fieldId('from')}>Start of the period</label>
-            <input id={fieldId('from')} type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <input id={fieldId('from')} type="datetime-local" step="1" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
           <div className="field field--grow">
             <label htmlFor={fieldId('to')}>End of the period</label>
-            <input id={fieldId('to')} type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+            <input id={fieldId('to')} type="datetime-local" step="1" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
         <p className="hint">Times are in this computer's time zone and are sent to the server in UTC.</p>
