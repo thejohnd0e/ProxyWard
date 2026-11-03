@@ -85,6 +85,7 @@ docker compose up -d
 `Events > Export data` downloads one JSON file with the events and the availability and speed results of the chosen proxies inside the chosen period. The defaults are the last 24 hours and all proxies. The file is produced on request, never stored on the server and never cached (`Cache-Control: no-store`); the download location is chosen by the browser on the computer that opens the interface.
 
 - Contents: `schema_version`, `generated_at`, the echoed period, the selected proxies (id, name, protocol, host, port), and the events, availability results and speed results. Record ids and millisecond durations are included; a rate that does not exist is `null`, never zero.
+- `episodes` turns the availability results into unbroken runs of failed checks per proxy: `started_at`, `ended_at` (`null` when no success followed inside the period), `checks`, `states` and `failure_codes`. They answer "when and why was this proxy failing" even when no incident event exists. All arrays still come from the same read transaction.
 - Never included: proxy usernames and passwords, the Telegram token, settings, sessions, the secrets key, and free-form event or failure messages. Proxy names are user-written text and exit IPs are sensitive: read the file before handing it to an agent or a person.
 - Events of deleted proxies are not exported: their `proxy_id` is gone, so they cannot be attributed to a selected proxy.
 - Only stored history is exported. The retention setting (default 30 days) removes older rows hourly.

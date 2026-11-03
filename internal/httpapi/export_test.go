@@ -66,6 +66,14 @@ func TestExportReturnsSelectedData(t *testing.T) {
 	if err := s.e.db.AddAvailability(ctx, domain.Availability{ProxyID: domain.ProxyID(otherID), CheckedAt: from, State: domain.StateUp}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.e.db.AddAvailability(ctx, domain.Availability{ProxyID: domain.ProxyID(keptID), CheckedAt: from.Add(2 * time.Hour),
+		State: domain.StateDown, Failure: &domain.Failure{Code: "timeout", Message: "secret"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.e.db.AddAvailability(ctx, domain.Availability{ProxyID: domain.ProxyID(keptID), CheckedAt: from.Add(2*time.Hour + time.Minute),
+		State: domain.StateDown, Failure: &domain.Failure{Code: "timeout", Message: "secret"}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.e.db.AddSpeed(ctx, domain.Speed{ProxyID: domain.ProxyID(keptID), CheckedAt: from.Add(time.Hour),
 		Provider: "cloudflare", Method: "app-stream-v1", TotalBytes: 42}); err != nil {
 		t.Fatal(err)
@@ -105,8 +113,15 @@ func TestExportReturnsSelectedData(t *testing.T) {
 	if len(proxies) != 1 || proxies[0].(m)["id"] != float64(keptID) || proxies[0].(m)["host"] != "kept.lan" {
 		t.Fatalf("proxies: %v", proxies)
 	}
-	if avail := got["availability"].([]any); len(avail) != 1 || avail[0].(m)["proxy_id"] != float64(keptID) {
+	if avail := got["availability"].([]any); len(avail) != 3 || avail[0].(m)["proxy_id"] != float64(keptID) {
 		t.Fatalf("availability: %v", avail)
+	}
+	episodes := got["episodes"].([]any)
+	if len(episodes) != 1 || episodes[0].(m)["proxy_id"] != float64(keptID) || episodes[0].(m)["ended_at"] != nil {
+		t.Fatalf("episodes: %v", episodes)
+	}
+	if codes := episodes[0].(m)["failure_codes"].([]any); len(codes) != 1 || codes[0] != "timeout" {
+		t.Fatalf("episode codes: %v", episodes[0])
 	}
 	if speed := got["speed"].([]any); len(speed) != 1 || speed[0].(m)["total_bytes"] != float64(42) {
 		t.Fatalf("speed: %v", speed)

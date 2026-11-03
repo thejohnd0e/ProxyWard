@@ -208,12 +208,14 @@ test('downloads a JSON export of the selected proxy and period', async ({}, info
     schema_version: number;
     proxies: Array<{ id: number; name: string }>;
     availability: unknown[];
+    episodes: unknown[];
     speed: unknown[];
   };
   expect(doc.schema_version).toBe(1);
   expect(doc.proxies).toHaveLength(1);
   expect(doc.proxies[0]!.name).toBe(name);
   expect(doc.availability.length).toBeGreaterThan(0);
+  expect(Array.isArray(doc.episodes)).toBe(true);
 
   // The file is secret-free: no proxy password and no Telegram token.
   expect(raw).not.toContain(fx.telegram_token);

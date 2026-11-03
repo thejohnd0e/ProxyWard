@@ -221,6 +221,89 @@ func TestExportRejectsMoreThanOneHundredProxies(t *testing.T) {
 	}
 }
 
+func TestExportEpisodesGroupConsecutiveFailures(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	ids := addProxies(t, db, 2)
+	from, to := exportRange()
+	add := func(id domain.ProxyID, at time.Time, st domain.State, code string) {
+		a := domain.Availability{ProxyID: id, CheckedAt: at, State: st}
+		if code != "" {
+			a.Failure = &domain.Failure{Code: code, Message: "m"}
+		}
+		if err := db.AddAvailability(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// One closed episode (two failures), then a recovery, then an open one.
+	add(ids[0], from, domain.StateUp, "")
+	add(ids[0], from.Add(time.Minute), domain.StateDown, "timeout")
+	add(ids[0], from.Add(2*time.Minute), domain.StateDown, "timeout")
+	add(ids[0], from.Add(3*time.Minute), domain.StateUp, "")
+	add(ids[0], from.Add(4*time.Minute), domain.StateIndeterminate, "provider_unavailable")
+	add(ids[0], from.Add(5*time.Minute), domain.StateIndeterminate, "provider_unavailable")
+	// Another proxy failing in between must not join the episodes.
+	add(ids[1], from.Add(90*time.Second), domain.StateDown, "connection_refused")
+
+	data, err := db.Export(ctx, ExportFilter{From: from, To: to, ProxyIDs: []domain.ProxyID{ids[0], ids[1]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := data.Episodes
+	if len(ep) != 3 {
+		t.Fatalf("episodes: %+v", ep)
+	}
+	first := ep[0]
+	if first.ProxyID != int64(ids[0]) || !first.StartedAt.Equal(from.Add(time.Minute)) ||
+		first.EndedAt == nil || !first.EndedAt.Equal(from.Add(2*time.Minute)) || first.Checks != 2 {
+		t.Fatalf("closed episode: %+v", first)
+	}
+	if len(first.States) != 1 || first.States[0] != "down" || len(first.FailureCodes) != 1 || first.FailureCodes[0] != "timeout" {
+		t.Fatalf("closed episode details: %+v", first)
+	}
+	other := ep[1]
+	if other.ProxyID != int64(ids[1]) || other.Checks != 1 || !other.StartedAt.Equal(from.Add(90*time.Second)) || other.EndedAt != nil {
+		t.Fatalf("other proxy episode must stay open: %+v", other)
+	}
+	open := ep[2]
+	if !open.StartedAt.Equal(from.Add(4*time.Minute)) || open.EndedAt != nil || open.Checks != 2 ||
+		open.States[0] != "indeterminate" || open.FailureCodes[0] != "provider_unavailable" {
+		t.Fatalf("open episode: %+v", open)
+	}
+	if !strings.Contains(mustJSON(t, data), `"episodes":[`) {
+		t.Fatal("episodes must be an array, not null")
+	}
+}
+
+func TestExportWithoutFailuresHasEmptyEpisodes(t *testing.T) {
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	from, to := exportRange()
+	if err := db.AddAvailability(context.Background(), domain.Availability{ProxyID: id, CheckedAt: from, State: domain.StateUp}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := db.Export(context.Background(), ExportFilter{From: from, To: to, ProxyIDs: []domain.ProxyID{id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Episodes == nil || len(data.Episodes) != 0 {
+		t.Fatalf("expected an empty episodes array, got %+v", data.Episodes)
+	}
+	if !strings.Contains(mustJSON(t, data), `"episodes":[]`) {
+		t.Fatal("no failures must still serialise as []")
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func TestExportRecordLimit(t *testing.T) {
 	db := openMigrated(t)
 	id := addProxies(t, db, 1)[0]

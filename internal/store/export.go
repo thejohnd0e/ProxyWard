@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ type ExportData struct {
 	Proxies      []ExportProxy        `json:"proxies"`
 	Events       []ExportEvent        `json:"events"`
 	Availability []ExportAvailability `json:"availability"`
+	Episodes     []ExportEpisode      `json:"episodes"`
 	Speed        []ExportSpeed        `json:"speed"`
 }
 
@@ -68,6 +70,18 @@ type ExportAvailability struct {
 	Endpoint    string    `json:"endpoint"`
 	DurationMS  int64     `json:"duration_ms"`
 	FailureCode string    `json:"failure_code"`
+}
+
+// ExportEpisode is one unbroken run of failed availability checks for a proxy,
+// derived from the exported results so an agent can answer "when and why was
+// this proxy failing" even when no incident event was recorded.
+type ExportEpisode struct {
+	ProxyID      int64      `json:"proxy_id"`
+	StartedAt    time.Time  `json:"started_at"`
+	EndedAt      *time.Time `json:"ended_at"` // null when no successful check followed inside the period
+	Checks       int        `json:"checks"`
+	States       []string   `json:"states"`
+	FailureCodes []string   `json:"failure_codes"`
 }
 
 // ExportSpeed is one speed check result.
@@ -109,6 +123,7 @@ func (s *Store) Export(ctx context.Context, f ExportFilter) (ExportData, error) 
 		Proxies:      []ExportProxy{},
 		Events:       []ExportEvent{},
 		Availability: []ExportAvailability{},
+		Episodes:     []ExportEpisode{},
 		Speed:        []ExportSpeed{},
 	}
 	limit := ExportMaxRecords
@@ -131,6 +146,7 @@ func (s *Store) Export(ctx context.Context, f ExportFilter) (ExportData, error) 
 	if err := exportAvailability(ctx, tx, in, ids, from, to, limit, &data); err != nil {
 		return ExportData{}, err
 	}
+	data.Episodes = buildEpisodes(data.Availability)
 	if err := exportSpeed(ctx, tx, in, ids, from, to, limit, &data); err != nil {
 		return ExportData{}, err
 	}
@@ -155,6 +171,54 @@ func validateExportFilter(f ExportFilter) error {
 		seen[id] = true
 	}
 	return nil
+}
+
+// buildEpisodes derives runs of failed availability checks from the exported
+// results. A run ends at the next successful check of the same proxy and stays
+// open when no success follows inside the selected period.
+func buildEpisodes(rows []ExportAvailability) []ExportEpisode {
+	out := []ExportEpisode{}
+	type open struct {
+		index int
+		last  time.Time
+	}
+	running := map[int64]open{}
+	for _, a := range rows {
+		if a.State == string(domain.StateUp) {
+			if o, ok := running[a.ProxyID]; ok {
+				end := o.last
+				out[o.index].EndedAt = &end
+				delete(running, a.ProxyID)
+			}
+			continue
+		}
+		o, ok := running[a.ProxyID]
+		if !ok {
+			out = append(out, ExportEpisode{ProxyID: a.ProxyID, StartedAt: a.At, States: []string{}, FailureCodes: []string{}})
+			o = open{index: len(out) - 1}
+		}
+		out[o.index].Checks++
+		out[o.index].States = addUnique(out[o.index].States, a.State)
+		if a.FailureCode != "" {
+			out[o.index].FailureCodes = addUnique(out[o.index].FailureCodes, a.FailureCode)
+		}
+		o.last = a.At
+		running[a.ProxyID] = o
+	}
+	for i := range out {
+		sort.Strings(out[i].States)
+		sort.Strings(out[i].FailureCodes)
+	}
+	return out
+}
+
+func addUnique(list []string, v string) []string {
+	for _, have := range list {
+		if have == v {
+			return list
+		}
+	}
+	return append(list, v)
 }
 
 func exportIDs(ids []domain.ProxyID) []any {

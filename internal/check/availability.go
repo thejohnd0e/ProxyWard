@@ -38,6 +38,10 @@ type attempt struct {
 //   - a valid public exit IP from any provider: up;
 //   - an explicit proxy failure (refused, authentication, proxy TLS, invalid
 //     reply): down, without trying further providers;
+//   - every provider timing out: down, because a route that answers on none of
+//     them is treated as a proxy or upstream-tunnel failure (one slow provider
+//     still falls back, and a mix of timeouts and provider errors stays
+//     indeterminate);
 //   - otherwise, when every provider fails: indeterminate, because the cause
 //     cannot be told apart from a provider or route problem;
 //   - cancellation: indeterminate with the canceled code, and no fallback.
@@ -87,10 +91,31 @@ func (c *Checker) Check(ctx context.Context, p domain.Proxy, client *http.Client
 	}
 	res.Endpoint = chosen.provider
 	res.Failure = &domain.Failure{Code: chosen.class.Failure.Code, Message: chosen.class.Failure.Message}
-	if chosen.class.Definite {
+	switch {
+	case chosen.class.Definite:
 		res.State = domain.StateDown
-	} else {
+	case allTimedOut(failed):
+		// No provider answered and none failed explicitly: the tunnel through
+		// the proxy stalled, which is a definite failure of the monitor's
+		// route rather than a provider-specific problem.
+		res.State = domain.StateDown
+		res.Failure = &domain.Failure{Code: CodeTimeout, Message: messages[CodeTimeout]}
+	default:
 		res.State = domain.StateIndeterminate
 	}
 	return done()
+}
+
+// allTimedOut reports whether every provider attempt failed only because it
+// timed out.
+func allTimedOut(failed []attempt) bool {
+	if len(failed) == 0 {
+		return false
+	}
+	for _, a := range failed {
+		if a.class.Definite || a.class.Failure.Code != CodeTimeout {
+			return false
+		}
+	}
+	return true
 }

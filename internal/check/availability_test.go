@@ -103,6 +103,19 @@ func code(a domain.Availability) string {
 	return a.Failure.Code
 }
 
+func TestTimeoutMixedWithProviderErrorStaysIndeterminate(t *testing.T) {
+	r := newRig(t)
+	r.handle("/ipify", func(w http.ResponseWriter, req *http.Request) {
+		time.Sleep(2 * time.Second)
+		testkit.IPifyHandler("198.51.100.7")(w, req)
+	})
+	r.handle("/aws", testkit.StatusHandler(503, ""))
+	p, _ := r.proxy(domain.ProtocolHTTP, testkit.ProxyOptions{}, nil)
+	if a := r.run(p, 300*time.Millisecond); a.State != domain.StateIndeterminate {
+		t.Fatalf("a timeout plus a provider error is not attributable to the proxy: %+v", a)
+	}
+}
+
 func TestUpThroughEveryProtocol(t *testing.T) {
 	for _, proto := range []domain.Protocol{domain.ProtocolHTTP, domain.ProtocolHTTPS, domain.ProtocolSOCKS5} {
 		r := newRig(t)
@@ -242,16 +255,29 @@ func TestProxyThatCannotReachTheTargetIsIndeterminate(t *testing.T) {
 	}
 }
 
-func TestStalledProxyIsIndeterminateTimeout(t *testing.T) {
+func TestStalledProxyIsDown(t *testing.T) {
 	r := newRig(t)
 	p, _ := r.proxy(domain.ProtocolHTTP, testkit.ProxyOptions{Stall: true}, nil)
 	start := time.Now()
 	a := r.run(p, 300*time.Millisecond)
-	if a.State != domain.StateIndeterminate || code(a) != "timeout" {
-		t.Fatalf("%+v", a)
+	if a.State != domain.StateDown || code(a) != "timeout" {
+		t.Fatalf("every provider timed out, so the proxy is down: %+v", a)
 	}
 	if time.Since(start) > 4*time.Second {
 		t.Fatalf("took %v", time.Since(start))
+	}
+}
+
+func TestSlowPrimaryProviderStillFallsBackToUp(t *testing.T) {
+	r := newRig(t)
+	r.handle("/ipify", func(w http.ResponseWriter, req *http.Request) {
+		time.Sleep(2 * time.Second)
+		testkit.IPifyHandler("198.51.100.7")(w, req)
+	})
+	p, _ := r.proxy(domain.ProtocolHTTP, testkit.ProxyOptions{}, nil)
+	a := r.run(p, 300*time.Millisecond)
+	if a.State != domain.StateUp || a.Endpoint != "aws" || a.Failure != nil {
+		t.Fatalf("a timeout of one provider must not end the check: %+v", a)
 	}
 }
 
