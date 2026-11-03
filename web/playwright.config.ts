@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 // Browser tests run against the real application wired to local fixture proxies
 // and fake public services (scripts/e2e-server.mjs). They never use the internet.
-// They use the Chrome installed on the machine, so no browser is downloaded.
+// Locally this defaults to installed Chrome; CI selects the Playwright-pinned Chromium.
 const channel = process.env.E2E_BROWSER_CHANNEL ?? 'chrome';
 
 export default defineConfig({

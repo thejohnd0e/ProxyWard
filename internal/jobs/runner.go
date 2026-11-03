@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/thejohnd0e/ProxyWard/internal/check"
@@ -24,11 +25,6 @@ type SpeedMeasurer interface {
 	Gate(ctx context.Context) (check.Gate, error)
 }
 
-// IncidentRecorder applies availability results to incident state.
-type IncidentRecorder interface {
-	Apply(ctx context.Context, result domain.Availability) error
-}
-
 // ClientFactory builds the HTTP client that routes through a proxy.
 type ClientFactory func(p domain.Proxy, timeout time.Duration) (*http.Client, error)
 
@@ -42,18 +38,25 @@ type Runner struct {
 	Clock        domain.Clock
 	Availability AvailabilityChecker
 	Speed        SpeedMeasurer
-	Incidents    IncidentRecorder
 	NewClient    ClientFactory
-	Scheduler    *Scheduler
 	// OnAvailability is called after an availability result was stored; may be nil.
 	OnAvailability func(domain.Proxy, domain.Availability)
 	Logger         *slog.Logger
 	// PollInterval is how often idle workers look for due jobs.
 	PollInterval time.Duration
 
-	mu      sync.Mutex
-	signal  chan struct{}
-	cancels map[int64]context.CancelCauseFunc
+	mu               sync.Mutex
+	signal           chan struct{}
+	cancels          map[int64]context.CancelCauseFunc
+	completionFailed atomic.Bool
+}
+
+// Ready reports whether workers may safely continue claiming jobs.
+func (r *Runner) Ready() error {
+	if r.completionFailed.Load() {
+		return errors.New("job outcome persistence has failed; workers are paused")
+	}
+	return nil
 }
 
 func (r *Runner) init() {
@@ -147,6 +150,9 @@ func (r *Runner) worker(ctx context.Context, kind domain.CheckKind) {
 // runnable is false while the speed provider is paused: speed jobs then wait
 // in the queue instead of being claimed and failing.
 func (r *Runner) runnable(ctx context.Context, kind domain.CheckKind) bool {
+	if r.completionFailed.Load() {
+		return false
+	}
 	if kind != domain.CheckSpeed {
 		return true
 	}
@@ -172,6 +178,13 @@ func (r *Runner) execute(ctx context.Context, job domain.Job) {
 		r.mu.Unlock()
 		cancel(nil)
 	}()
+	current, err := r.Store.GetJob(ctx, job.ID)
+	if err != nil {
+		r.logger().Error("load claimed job state failed", "job", job.ID, "error", err)
+		cancel(errUserCanceled)
+	} else if !current.Status.Active() || current.CancelRequestedAt != nil {
+		cancel(errUserCanceled)
+	}
 
 	status := r.run(ctx, jobCtx, job)
 
@@ -230,18 +243,22 @@ func (r *Runner) runAvailability(parent, jobCtx context.Context, job domain.Job,
 	}
 	wctx, done := r.writeCtx(parent)
 	defer done()
-	if err := r.Store.AddAvailability(wctx, res); err != nil {
+	completion := domain.AvailabilityCompletion{JobID: job.ID, Result: res, CompletedAt: r.Clock.Now(), ScheduleRevision: job.ScheduleRevision}
+	err = r.retryOutcomeCommit(wctx, func() error {
+		_, err := r.Store.CompleteAvailability(wctx, completion)
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrJobCanceled) {
+			return domain.JobCanceled
+		}
 		if !errors.Is(err, store.ErrNotFound) {
-			r.logger().Error("store availability failed", "job", job.ID, "error", err)
+			r.completionFailed.Store(true)
+			r.logger().Error("commit availability outcome failed", "job", job.ID, "error", err)
+			return domain.JobInterrupted
 		}
 		return domain.JobDone
 	}
-	if r.Incidents != nil {
-		if err := r.Incidents.Apply(wctx, res); err != nil {
-			r.logger().Error("apply incident failed", "job", job.ID, "error", err)
-		}
-	}
-	r.completed(wctx, job)
 	if r.OnAvailability != nil {
 		r.OnAvailability(p, res)
 	}
@@ -264,21 +281,37 @@ func (r *Runner) runSpeed(parent, jobCtx context.Context, job domain.Job, p doma
 	}
 	wctx, done := r.writeCtx(parent)
 	defer done()
-	if err := r.Store.AddSpeed(wctx, res); err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			r.logger().Error("store speed failed", "job", job.ID, "error", err)
+	completion := domain.SpeedCompletion{JobID: job.ID, Result: res, CompletedAt: r.Clock.Now(), ScheduleRevision: job.ScheduleRevision}
+	if err := r.retryOutcomeCommit(wctx, func() error { return r.Store.CompleteSpeed(wctx, completion) }); err != nil {
+		if errors.Is(err, store.ErrJobCanceled) {
+			return domain.JobCanceled
 		}
-		return domain.JobDone
+		if !errors.Is(err, store.ErrNotFound) {
+			r.completionFailed.Store(true)
+			r.logger().Error("commit speed outcome failed", "job", job.ID, "error", err)
+			return domain.JobInterrupted
+		}
 	}
-	r.completed(wctx, job)
 	return domain.JobDone
 }
 
-func (r *Runner) completed(ctx context.Context, job domain.Job) {
-	if r.Scheduler == nil {
-		return
+func (r *Runner) retryOutcomeCommit(ctx context.Context, commit func() error) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = commit()
+		if err == nil || errors.Is(err, store.ErrJobCanceled) || errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrConflict) {
+			return err
+		}
+		if attempt == 2 {
+			break
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 25 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		}
 	}
-	if err := r.Scheduler.CompletedJob(ctx, job, r.Clock.Now()); err != nil && !errors.Is(err, store.ErrNotFound) {
-		r.logger().Error("record next run failed", "job", job.ID, "error", err)
-	}
+	return err
 }

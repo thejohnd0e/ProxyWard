@@ -14,18 +14,34 @@ import (
 // AddSpeed stores one speed result. A direction without a completed sample is
 // stored with a NULL rate, never zero. ErrNotFound means the proxy is gone.
 func (s *Store) AddSpeed(ctx context.Context, sp domain.Speed) error {
-	d, u := sp.Download, sp.Upload
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.db.ExecContext(ctx,
+	return addSpeedTx(ctx, s.db, sp)
+}
+
+func addSpeedTx(ctx context.Context, exec interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, sp domain.Speed) error {
+	return addSpeedForJobTx(ctx, exec, 0, sp)
+}
+
+func addSpeedForJobTx(ctx context.Context, exec interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, jobID int64, sp domain.Speed) error {
+	d, u := sp.Download, sp.Upload
+	var identity any
+	if jobID > 0 {
+		identity = jobID
+	}
+	_, err := exec.ExecContext(ctx,
 		`INSERT INTO speed_results (proxy_id, checked_at, provider, method,
 		   download_bytes, download_us, download_mbps, download_low_conf, download_fail_code, download_fail_msg,
-		   upload_bytes, upload_us, upload_mbps, upload_low_conf, upload_fail_code, upload_fail_msg, total_bytes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   upload_bytes, upload_us, upload_mbps, upload_low_conf, upload_fail_code, upload_fail_msg, total_bytes, job_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		int64(sp.ProxyID), sp.CheckedAt.UTC().UnixMilli(), sp.Provider, sp.Method,
 		d.Bytes, d.Duration.Microseconds(), nullFloat(d.Mbps), boolInt(d.LowConfidence), failCode(d.Failure), failMsg(d.Failure),
 		u.Bytes, u.Duration.Microseconds(), nullFloat(u.Mbps), boolInt(u.LowConfidence), failCode(u.Failure), failMsg(u.Failure),
-		sp.TotalBytes)
+		sp.TotalBytes, identity)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			return ErrNotFound

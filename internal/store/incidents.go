@@ -40,8 +40,6 @@ func (s *Store) RecordAvailabilityOutcome(ctx context.Context, a domain.Availabi
 	if threshold < 1 || threshold > 10 {
 		return IncidentOutcome{}, fmt.Errorf("%w: threshold must be between 1 and 10", ErrInvalid)
 	}
-	ignored := a.Failure != nil && (a.Failure.Code == "canceled" || a.Failure.Code == "interrupted")
-
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -50,6 +48,18 @@ func (s *Store) RecordAvailabilityOutcome(ctx context.Context, a domain.Availabi
 	}
 	defer tx.Rollback()
 
+	out, err := recordAvailabilityOutcomeTx(ctx, tx, a, threshold)
+	if err != nil {
+		return IncidentOutcome{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return IncidentOutcome{}, fmt.Errorf("record outcome: %w", err)
+	}
+	return out, nil
+}
+
+func recordAvailabilityOutcomeTx(ctx context.Context, tx *sql.Tx, a domain.Availability, threshold int) (IncidentOutcome, error) {
+	ignored := a.Failure != nil && (a.Failure.Code == "canceled" || a.Failure.Code == "interrupted")
 	var name string
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM proxies WHERE id = ?`, int64(a.ProxyID)).Scan(&name); errors.Is(err, sql.ErrNoRows) {
 		return IncidentOutcome{}, ErrNotFound
@@ -66,7 +76,7 @@ func (s *Store) RecordAvailabilityOutcome(ctx context.Context, a domain.Availabi
 	}
 
 	var incidentID int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM incidents WHERE proxy_id = ? AND ended_at IS NULL`, int64(a.ProxyID)).Scan(&incidentID)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM incidents WHERE proxy_id = ? AND ended_at IS NULL`, int64(a.ProxyID)).Scan(&incidentID)
 	open := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return IncidentOutcome{}, fmt.Errorf("record outcome: %w", err)
@@ -115,9 +125,6 @@ func (s *Store) RecordAvailabilityOutcome(ctx context.Context, a domain.Availabi
 		`INSERT INTO proxy_state (proxy_id, failure_streak, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT(proxy_id) DO UPDATE SET failure_streak = excluded.failure_streak, updated_at = excluded.updated_at`,
 		int64(a.ProxyID), out.Streak, at.UnixMilli()); err != nil {
-		return IncidentOutcome{}, fmt.Errorf("record outcome: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
 		return IncidentOutcome{}, fmt.Errorf("record outcome: %w", err)
 	}
 	return out, nil

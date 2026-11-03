@@ -11,7 +11,7 @@ import (
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
 
-const jobColumns = `id, proxy_id, kind, status, source, due_at, created_at, started_at, finished_at, schedule_revision`
+const jobColumns = `id, proxy_id, kind, status, source, due_at, created_at, started_at, finished_at, schedule_revision, cancel_requested_at`
 
 func scanJob(r rowScanner) (domain.Job, error) {
 	var (
@@ -19,8 +19,9 @@ func scanJob(r rowScanner) (domain.Job, error) {
 		kind, status       string
 		due, created       int64
 		started, finishedN sql.NullInt64
+		cancelRequested    sql.NullInt64
 	)
-	if err := r.Scan(&j.ID, &j.ProxyID, &kind, &status, &j.Source, &due, &created, &started, &finishedN, &j.ScheduleRevision); err != nil {
+	if err := r.Scan(&j.ID, &j.ProxyID, &kind, &status, &j.Source, &due, &created, &started, &finishedN, &j.ScheduleRevision, &cancelRequested); err != nil {
 		return domain.Job{}, err
 	}
 	j.Kind, j.Status = domain.CheckKind(kind), domain.JobStatus(status)
@@ -32,6 +33,10 @@ func scanJob(r rowScanner) (domain.Job, error) {
 	if finishedN.Valid {
 		t := time.UnixMilli(finishedN.Int64).UTC()
 		j.FinishedAt = &t
+	}
+	if cancelRequested.Valid {
+		t := time.UnixMilli(cancelRequested.Int64).UTC()
+		j.CancelRequestedAt = &t
 	}
 	return j, nil
 }
@@ -229,7 +234,32 @@ func (s *Store) FinishJob(ctx context.Context, id int64, status domain.JobStatus
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("finish job: %w", err)
+	}
+	defer tx.Rollback()
+	job, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("finish job: %w", err)
+	}
+	if !job.Status.Active() {
+		return ErrNotFound
+	}
+	if job.CancelRequestedAt != nil && status == domain.JobDone {
+		status = domain.JobCanceled
+	}
+	if status == domain.JobCanceled && job.Status == domain.JobRunning && job.Source == domain.SourceScheduled {
+		if job.CancelRequestedAt != nil {
+			if err := advanceScheduleOnCancelTx(ctx, tx, job.ProxyID, job.Kind, job.ScheduleRevision, now); err != nil {
+				return fmt.Errorf("finish canceled job schedule: %w", err)
+			}
+		}
+	}
+	res, err := tx.ExecContext(ctx,
 		`UPDATE jobs SET status = ?, finished_at = ? WHERE id = ? AND status IN ('pending','running')`,
 		string(status), now.UTC().UnixMilli(), id)
 	if err != nil {
@@ -238,7 +268,103 @@ func (s *Store) FinishJob(ctx context.Context, id int64, status domain.JobStatus
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
+}
+
+// RequestJobCancel durably records cancellation before a runner is signaled.
+// Pending scheduled occurrences are canceled and advanced atomically.
+func (s *Store) RequestJobCancel(ctx context.Context, id int64, now time.Time) (domain.Job, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+	}
+	defer tx.Rollback()
+	job, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Job{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+	}
+	if !job.Status.Active() {
+		return domain.Job{}, ErrConflict
+	}
+	ms := now.UTC().UnixMilli()
+	if job.Status == domain.JobPending {
+		if job.Source == domain.SourceScheduled {
+			rows, err := readScheduleRows(ctx, tx)
+			if err != nil {
+				return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+			}
+			for _, row := range rows {
+				if row.id == job.ProxyID {
+					_, revision := scheduleFor(row, job.Kind)
+					if err := advanceScheduleOnCancelTx(ctx, tx, job.ProxyID, job.Kind, revision, now); err != nil {
+						return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+					}
+					break
+				}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'canceled', finished_at = ? WHERE id = ? AND status = 'pending'`, ms, id); err != nil {
+			return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+		}
+		job.Status = domain.JobCanceled
+		finished := now.UTC()
+		job.FinishedAt = &finished
+	} else {
+		if job.Source == domain.SourceScheduled {
+			if err := advanceScheduleOnCancelTx(ctx, tx, job.ProxyID, job.Kind, job.ScheduleRevision, now); err != nil {
+				return domain.Job{}, fmt.Errorf("request job cancellation schedule: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET cancel_requested_at = COALESCE(cancel_requested_at, ?) WHERE id = ? AND status = 'running'`, ms, id); err != nil {
+			return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+		}
+		if job.CancelRequestedAt == nil {
+			requested := now.UTC()
+			job.CancelRequestedAt = &requested
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Job{}, fmt.Errorf("request job cancellation: %w", err)
+	}
+	return job, nil
+}
+
+func advanceScheduleOnCancelTx(ctx context.Context, tx *sql.Tx, id domain.ProxyID, kind domain.CheckKind, revision int64, now time.Time) error {
+	settings, err := settingsFromTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	rows, err := readScheduleRows(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var row scheduleRow
+	found := false
+	for _, candidate := range rows {
+		if candidate.id == id {
+			row, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
+	eff := effective(row, settings, kind)
+	var value any
+	if eff.Enabled && !row.paused {
+		value = now.UTC().Add(eff.Interval).UnixMilli()
+	}
+	col, revCol := "next_availability_at", "availability_revision"
+	if kind == domain.CheckSpeed {
+		col, revCol = "next_speed_at", "speed_revision"
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE proxies SET `+col+` = ? WHERE id = ? AND `+revCol+` = ?`, value, int64(id), revision)
+	return err
 }
 
 // GetJob returns one job, or ErrNotFound.
@@ -270,38 +396,6 @@ func (s *Store) ListActiveJobs(ctx context.Context) ([]domain.Job, error) {
 		out = append(out, j)
 	}
 	return out, rows.Err()
-}
-
-// CancelPendingJob cancels a pending job. A running job is returned
-// unchanged with canceled=false: only its runner can stop it.
-func (s *Store) CancelPendingJob(ctx context.Context, id int64, now time.Time) (job domain.Job, canceled bool, err error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return domain.Job{}, false, fmt.Errorf("cancel job: %w", err)
-	}
-	defer tx.Rollback()
-	job, err = scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Job{}, false, ErrNotFound
-	}
-	if err != nil {
-		return domain.Job{}, false, fmt.Errorf("cancel job: %w", err)
-	}
-	if job.Status != domain.JobPending {
-		return job, false, nil
-	}
-	ms := now.UTC().UnixMilli()
-	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'canceled', finished_at = ? WHERE id = ?`, ms, id); err != nil {
-		return domain.Job{}, false, fmt.Errorf("cancel job: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return domain.Job{}, false, fmt.Errorf("cancel job: %w", err)
-	}
-	t := now.UTC()
-	job.Status, job.FinishedAt = domain.JobCanceled, &t
-	return job, true, nil
 }
 
 // CancelProxyJobs cancels all pending jobs of a proxy and returns its running

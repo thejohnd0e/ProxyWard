@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,15 +31,16 @@ func (s *Server) registerJobRoutes(mux *http.ServeMux) {
 }
 
 type jobDTO struct {
-	ID         int64   `json:"id"`
-	ProxyID    int64   `json:"proxy_id"`
-	Kind       string  `json:"kind"`
-	Status     string  `json:"status"`
-	Source     string  `json:"source"`
-	DueAt      string  `json:"due_at"`
-	CreatedAt  string  `json:"created_at"`
-	StartedAt  *string `json:"started_at"`
-	FinishedAt *string `json:"finished_at"`
+	ID                int64   `json:"id"`
+	ProxyID           int64   `json:"proxy_id"`
+	Kind              string  `json:"kind"`
+	Status            string  `json:"status"`
+	Source            string  `json:"source"`
+	DueAt             string  `json:"due_at"`
+	CreatedAt         string  `json:"created_at"`
+	StartedAt         *string `json:"started_at"`
+	FinishedAt        *string `json:"finished_at"`
+	CancelRequestedAt *string `json:"cancel_requested_at"`
 }
 
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -55,6 +57,7 @@ func toJobDTO(j domain.Job) jobDTO {
 	return jobDTO{
 		ID: j.ID, ProxyID: int64(j.ProxyID), Kind: string(j.Kind), Status: string(j.Status), Source: j.Source,
 		DueAt: ts(j.DueAt), CreatedAt: ts(j.CreatedAt), StartedAt: tsPtr(j.StartedAt), FinishedAt: tsPtr(j.FinishedAt),
+		CancelRequestedAt: tsPtr(j.CancelRequestedAt),
 	}
 }
 
@@ -160,6 +163,8 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := s.jobs.Cancel(r.Context(), id)
 	switch {
+	case errors.Is(err, store.ErrConflict):
+		apierr.Write(w, http.StatusConflict, "job_finished", "The job has already finished.", nil)
 	case err != nil:
 		s.storeError(w, "cancel job", err)
 	case job.Status == domain.JobCanceled:

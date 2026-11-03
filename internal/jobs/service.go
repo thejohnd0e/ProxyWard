@@ -18,7 +18,6 @@ type Config struct {
 	Clock        domain.Clock
 	Availability AvailabilityChecker
 	Speed        SpeedMeasurer
-	Incidents    IncidentRecorder
 	NewClient    ClientFactory
 	Logger       *slog.Logger
 	Poll         time.Duration // idle worker poll interval; default 1 s
@@ -46,8 +45,8 @@ func NewService(c Config) *Service {
 	}
 	sched := NewScheduler(c.Store, c.Clock)
 	runner := &Runner{
-		Store: c.Store, Clock: c.Clock, Availability: c.Availability, Speed: c.Speed, Incidents: c.Incidents,
-		NewClient: c.NewClient, Scheduler: sched, Logger: c.Logger, PollInterval: c.Poll,
+		Store: c.Store, Clock: c.Clock, Availability: c.Availability, Speed: c.Speed,
+		NewClient: c.NewClient, Logger: c.Logger, PollInterval: c.Poll,
 	}
 	runner.init()
 	sched.Wake = runner.Wake
@@ -66,6 +65,9 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	s.Runner.Wake()
 	return nil
 }
+
+// Ready reports whether the runner can persist outcomes safely.
+func (s *Service) Ready() error { return s.Runner.Ready() }
 
 // Run recovers jobs interrupted by a previous process, then runs the workers
 // and the schedule loop until ctx is done.

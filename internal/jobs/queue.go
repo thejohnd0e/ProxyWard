@@ -55,11 +55,11 @@ func (q *Queue) EnqueueAll(ctx context.Context, kind domain.CheckKind, source st
 // Cancel cancels a pending job immediately or asks the runner to stop a
 // running one, which then finishes as canceled without recording a result.
 func (q *Queue) Cancel(ctx context.Context, id int64) (domain.Job, error) {
-	job, canceled, err := q.Store.CancelPendingJob(ctx, id, q.Clock.Now())
+	job, err := q.Store.RequestJobCancel(ctx, id, q.Clock.Now())
 	if err != nil {
 		return domain.Job{}, err
 	}
-	if !canceled && job.Status == domain.JobRunning && q.Canceler != nil {
+	if job.Status == domain.JobRunning && q.Canceler != nil {
 		q.Canceler.CancelRunning(id)
 	}
 	return job, nil

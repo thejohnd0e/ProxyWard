@@ -24,6 +24,8 @@ var (
 	ErrInvalid = errors.New("invalid record")
 	// ErrAuthUnsupported is returned until proxy credentials can be stored encrypted.
 	ErrAuthUnsupported = errors.New("proxy authentication storage is not available yet")
+	// ErrJobCanceled reports that durable cancellation won the outcome-commit race.
+	ErrJobCanceled = errors.New("job canceled before outcome commit")
 )
 
 // Store is the SQLite-backed persistent state. Short writes are serialized by

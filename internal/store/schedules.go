@@ -185,10 +185,7 @@ func (s *Store) ReconcileSchedules(ctx context.Context, now time.Time) error {
 // claimed under the still-current revision. The settings read and update share
 // a transaction so a concurrent settings write cannot mix revisions.
 func (s *Store) AdvanceScheduleAfterJob(ctx context.Context, id domain.ProxyID, kind domain.CheckKind, revision int64, now time.Time) error {
-	revCol := "availability_revision"
-	if kind == domain.CheckSpeed {
-		revCol = "speed_revision"
-	} else if kind != domain.CheckAvailability {
+	if kind != domain.CheckSpeed && kind != domain.CheckAvailability {
 		return fmt.Errorf("%w: kind", ErrInvalid)
 	}
 	s.writeMu.Lock()
@@ -198,13 +195,26 @@ func (s *Store) AdvanceScheduleAfterJob(ctx context.Context, id domain.ProxyID, 
 		return fmt.Errorf("advance schedule: %w", err)
 	}
 	defer tx.Rollback()
+	if err := advanceScheduleAfterJobTx(ctx, tx, id, kind, revision, now); err != nil {
+		return fmt.Errorf("advance schedule: %w", err)
+	}
+	return tx.Commit()
+}
+
+func advanceScheduleAfterJobTx(ctx context.Context, tx *sql.Tx, id domain.ProxyID, kind domain.CheckKind, revision int64, now time.Time) error {
+	revCol := "availability_revision"
+	if kind == domain.CheckSpeed {
+		revCol = "speed_revision"
+	} else if kind != domain.CheckAvailability {
+		return fmt.Errorf("%w: kind", ErrInvalid)
+	}
 	settings, err := settingsFromTx(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("advance schedule: %w", err)
+		return err
 	}
 	rows, err := readScheduleRows(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("advance schedule: %w", err)
+		return err
 	}
 	for _, row := range rows {
 		if row.id != id {
@@ -212,7 +222,7 @@ func (s *Store) AdvanceScheduleAfterJob(ctx context.Context, id domain.ProxyID, 
 		}
 		_, currentRevision := scheduleFor(row, kind)
 		if currentRevision != revision {
-			return tx.Commit()
+			return nil
 		}
 		eff := effective(row, settings, kind)
 		var next *time.Time
@@ -229,9 +239,9 @@ func (s *Store) AdvanceScheduleAfterJob(ctx context.Context, id domain.ProxyID, 
 			value = next.UnixMilli()
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE proxies SET `+col+` = ? WHERE id = ? AND `+revCol+` = ?`, value, int64(id), revision); err != nil {
-			return fmt.Errorf("advance schedule: %w", err)
+			return err
 		}
-		return tx.Commit()
+		return nil
 	}
 	return ErrNotFound
 }

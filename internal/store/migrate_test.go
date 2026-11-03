@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
 )
@@ -44,6 +45,44 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 	if n := countRows(t, db, `SELECT COUNT(*) FROM schema_migrations`); n != len(migs) {
 		t.Fatalf("schema_migrations rows = %d, want %d", n, len(migs))
+	}
+}
+
+func TestUpgradeFromV006PreservesJobsAndSupportsCancellation(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 6 || migrations[5].version != 6 {
+		t.Fatalf("unexpected migration sequence: %+v", migrations)
+	}
+	if err := db.migrate(ctx, migrations[:6]); err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.InsertProxy(ctx, domain.Proxy{Name: "legacy", Protocol: "http", Host: "legacy.lan", Port: 8080})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, time.Now(), time.Now())
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("legacy enqueue: %+v %v", queued, err)
+	}
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, time.Now().Add(time.Second))
+	if err != nil || !ok || job.ID != queued.New[0].ID {
+		t.Fatalf("legacy job after upgrade: %+v ok=%v err=%v", job, ok, err)
+	}
+	requested, err := db.RequestJobCancel(ctx, job.ID, time.Now())
+	if err != nil || requested.CancelRequestedAt == nil {
+		t.Fatalf("cancellation after upgrade: %+v %v", requested, err)
 	}
 }
 

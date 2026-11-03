@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -9,7 +11,8 @@ import (
 
 	"github.com/thejohnd0e/ProxyWard/internal/check"
 	"github.com/thejohnd0e/ProxyWard/internal/domain"
-	"github.com/thejohnd0e/ProxyWard/internal/notify"
+	"github.com/thejohnd0e/ProxyWard/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 // occupancy records, across both check kinds, how many checks run at once
@@ -157,7 +160,6 @@ func newRig(t *testing.T, proxies int, mod func(*domain.Settings), checks *fakeC
 	svc := NewService(Config{
 		Store: e.db, Clock: domain.SystemClock{},
 		Availability: checks, Speed: checks,
-		Incidents: &notify.IncidentTracker{Store: e.db},
 		NewClient: func(domain.Proxy, time.Duration) (*http.Client, error) { return http.DefaultClient, nil },
 		Poll:      5 * time.Millisecond, TickEvery: 10 * time.Millisecond,
 	})
@@ -355,7 +357,7 @@ func TestCancelRunningJobStopsItWithoutAResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != jobs[0].ID {
+	if got.ID != jobs[0].ID || got.CancelRequestedAt == nil {
 		t.Fatalf("%+v", got)
 	}
 	waitFor(t, "job canceled", func() bool {
@@ -369,6 +371,84 @@ func TestCancelRunningJobStopsItWithoutAResult(t *testing.T) {
 	close(r.checks.hold)
 	r.enqueue(domain.CheckAvailability, id)
 	waitFor(t, "second check", func() bool { return r.availCount(id) == 1 && r.idle() })
+}
+
+func TestCancelBetweenClaimAndExecute(t *testing.T) {
+	r := newRig(t, 1, nil, nil)
+	ctx := context.Background()
+	r.enqueue(domain.CheckAvailability, r.ids[0])
+	job, ok, err := r.db.ClaimJob(ctx, domain.CheckAvailability, time.Now())
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	requested, err := r.svc.Queue.Cancel(ctx, job.ID)
+	if err != nil || requested.CancelRequestedAt == nil {
+		t.Fatalf("cancel intent was not persisted before runner registration: %+v %v", requested, err)
+	}
+
+	r.svc.Runner.execute(ctx, job)
+	if _, calls, _, _ := r.occ.snapshot(); calls != 0 {
+		t.Fatalf("canceled job began network work: %d checks", calls)
+	}
+	finished, err := r.db.GetJob(ctx, job.ID)
+	if err != nil || finished.Status != domain.JobCanceled {
+		t.Fatalf("job state: %+v %v", finished, err)
+	}
+	if r.availCount(r.ids[0]) != 0 || r.count(`SELECT COUNT(*) FROM events`) != 0 {
+		t.Fatal("canceled check left a result or incident event")
+	}
+}
+
+func TestCompletionFailurePausesClaimsAndFailsReadiness(t *testing.T) {
+	r := newRig(t, 2, func(s *domain.Settings) { s.AvailabilityConcurrency = 1 }, nil)
+	ctx := context.Background()
+	triggerDB, err := sql.Open("sqlite", r.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := triggerDB.ExecContext(ctx, `CREATE TRIGGER reject_job_completion BEFORE UPDATE OF status ON jobs WHEN NEW.status = 'done' BEGIN SELECT RAISE(ABORT, 'test completion failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := triggerDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	queued, err := r.svc.Queue.Enqueue(ctx, r.ids, domain.CheckAvailability, domain.SourceManual)
+	if err != nil || len(queued.New) != 2 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	waitFor(t, "first failed completion", func() bool {
+		job, err := r.db.GetJob(ctx, queued.New[0].ID)
+		active := r.statuses()
+		return err == nil && job.Status == domain.JobInterrupted && active[domain.JobPending] == 1 && active[domain.JobRunning] == 0
+	})
+	if err := r.svc.Ready(); err == nil {
+		t.Fatal("runner remained ready after persistent outcome commit failure")
+	}
+	_, calls, _, _ := r.occ.snapshot()
+	if calls != 1 || r.svc.Runner.runnable(ctx, domain.CheckAvailability) {
+		t.Fatalf("runner remained able to claim after persistent completion failure: calls=%d", calls)
+	}
+}
+
+func TestOutcomeCommitRetriesAtMostThreeTimes(t *testing.T) {
+	r := &Runner{}
+	attempts := 0
+	err := r.retryOutcomeCommit(context.Background(), func() error {
+		attempts++
+		return errors.New("transient database failure")
+	})
+	if err == nil || attempts != 3 {
+		t.Fatalf("retry attempts=%d err=%v, want exactly three attempts and final error", attempts, err)
+	}
+	attempts = 0
+	err = r.retryOutcomeCommit(context.Background(), func() error {
+		attempts++
+		return store.ErrJobCanceled
+	})
+	if !errors.Is(err, store.ErrJobCanceled) || attempts != 1 {
+		t.Fatalf("cancellation retry attempts=%d err=%v, want one attempt", attempts, err)
+	}
 }
 
 func TestCancelPendingJob(t *testing.T) {

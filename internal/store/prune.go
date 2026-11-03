@@ -31,7 +31,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time, batchSize int) (int
 			     AND id NOT IN (SELECT MAX(id) FROM speed_results GROUP BY proxy_id) LIMIT ?2)`},
 		{"jobs",
 			`DELETE FROM jobs WHERE id IN (
-			   SELECT id FROM jobs WHERE status NOT IN ('pending','running') AND finished_at < ?1 LIMIT ?2)`},
+			   SELECT id FROM jobs WHERE status NOT IN ('pending','running') AND finished_at < ?1
+			     AND NOT EXISTS (SELECT 1 FROM availability_results WHERE job_id = jobs.id)
+			     AND NOT EXISTS (SELECT 1 FROM speed_results WHERE job_id = jobs.id) LIMIT ?2)`},
 		{"notifications",
 			`DELETE FROM notification_outbox WHERE id IN (
 			   SELECT id FROM notification_outbox WHERE created_at < ?1

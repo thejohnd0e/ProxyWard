@@ -40,6 +40,17 @@ jobs:
         run: npm --prefix web test
       - name: Build
         run: npm --prefix web run build
+      - name: Embed web assets for the local E2E fixture
+        run: node scripts/build-web.mjs
+      - name: Install pinned Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests against local fixtures
+        working-directory: web
+        env:
+          CI: true
+          E2E_BROWSER_CHANNEL: chromium
+        run: npm run e2e
 
   docker:
     name: Docker image

@@ -103,7 +103,7 @@ func RunWith(ctx context.Context, cfg config.Config, opts Options) error {
 		defer close(retentionDone)
 		runRetention(ctx, db, domain.SystemClock{}, time.Hour)
 	}()
-	handler := NewHandler(db, cipher, httpapi.WithSecureCookies(cfg.SessionSecure),
+	handler := NewHandlerWithReadiness(db, cipher, svc.Ready, httpapi.WithSecureCookies(cfg.SessionSecure),
 		httpapi.WithJobs(svc.Queue), httpapi.WithReconcile(svc.Reconcile), httpapi.WithGeo(geoSvc))
 	err = serve(ctx, ln, handler)
 	<-svcDone // running checks are interrupted and recorded before the database closes
@@ -142,7 +142,6 @@ func newJobService(ctx context.Context, db *store.Store, opts Options) (*jobs.Se
 	svc := jobs.NewService(jobs.Config{
 		Store: db, Clock: clock,
 		Availability: checker, Speed: speed, NewClient: newClient,
-		Incidents: &notify.IncidentTracker{Store: db},
 	})
 	// Geolocation of a new exit address is asked through the same proxy, so the
 	// source sees the proxy's address and never this machine's.
@@ -228,6 +227,11 @@ func SetAdminPassword(ctx context.Context, cfg config.Config, password string) e
 
 // NewHandler builds the HTTP handler: the health endpoint plus the API.
 func NewHandler(db *store.Store, cipher *secrets.Cipher, opts ...httpapi.Option) http.Handler {
+	return NewHandlerWithReadiness(db, cipher, nil, opts...)
+}
+
+// NewHandlerWithReadiness adds the job-service readiness check to /healthz.
+func NewHandlerWithReadiness(db *store.Store, cipher *secrets.Cipher, ready func() error, opts ...httpapi.Option) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", httpapi.New(db, cipher, opts...))
 	mux.Handle("/", webui.Handler())
@@ -239,6 +243,13 @@ func NewHandler(db *store.Store, cipher *secrets.Cipher, opts ...httpapi.Option)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"status":"unavailable"}`))
 			return
+		}
+		if ready != nil {
+			if err := ready(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unavailable"}`))
+				return
+			}
 		}
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})

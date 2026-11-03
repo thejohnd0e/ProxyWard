@@ -455,6 +455,53 @@ func TestStaleReconcileCannotEraseNewNextRun(t *testing.T) {
 	}
 }
 
+func TestCanceledScheduledOccurrenceAdvancesUnchangedSchedule(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := e.db.EnqueueJobs(ctx, e.ids, domain.CheckAvailability, domain.SourceScheduled, epoch, epoch)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	q := &Queue{Store: e.db, Clock: e.clock}
+	canceled, err := q.Cancel(ctx, queued.New[0].ID)
+	if err != nil || canceled.Status != domain.JobCanceled {
+		t.Fatalf("cancel: %+v %v", canceled, err)
+	}
+	if got, want := e.next(e.ids[0], domain.CheckAvailability), epoch.Add(time.Hour); got == nil || !got.Equal(want) {
+		t.Fatalf("scheduled cancellation next run = %v, want %v", got, want)
+	}
+}
+
+func TestCanceledManualPendingPreservesSchedule(t *testing.T) {
+	e := newEnv(t, 1)
+	ctx := context.Background()
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: time.Hour}
+	if err := e.db.PutSettings(ctx, settings, epoch); err != nil {
+		t.Fatal(err)
+	}
+	next := epoch.Add(30 * time.Minute)
+	if err := e.db.SetNextRun(ctx, e.ids[0], domain.CheckAvailability, &next); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := e.db.EnqueueJobs(ctx, e.ids, domain.CheckAvailability, domain.SourceManual, epoch, epoch)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue manual: %+v %v", queued, err)
+	}
+	q := &Queue{Store: e.db, Clock: e.clock}
+	if _, err := q.Cancel(ctx, queued.New[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.next(e.ids[0], domain.CheckAvailability); got == nil || !got.Equal(next) {
+		t.Fatalf("canceling manual work changed next run: got %v want %v", got, next)
+	}
+}
+
 func TestEffectiveScheduleOverrides(t *testing.T) {
 	e := newEnv(t, 3)
 	ctx := context.Background()

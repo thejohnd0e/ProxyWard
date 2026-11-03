@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +40,25 @@ func TestHealthzReflectsDatabase(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("closed-database status = %d, want 503", rec.Code)
+	}
+}
+
+func TestHealthzReflectsJobReadiness(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cipher, err := secrets.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandlerWithReadiness(db, cipher, func() error { return errors.New("completion persistence failed") })
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("job-unready status = %d, want 503", rec.Code)
 	}
 }
 

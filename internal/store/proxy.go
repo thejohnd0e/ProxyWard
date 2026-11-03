@@ -424,14 +424,25 @@ func (s *Store) mergeCredentials(hadAuth bool, oldUser string, oldEnc []byte, cu
 func (s *Store) DeleteProxy(ctx context.Context, id domain.ProxyID) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.ExecContext(ctx, `DELETE FROM proxies WHERE id = ?`, int64(id))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("delete proxy: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM availability_results WHERE proxy_id = ?`, int64(id)); err != nil {
+		return fmt.Errorf("delete proxy results: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM speed_results WHERE proxy_id = ?`, int64(id)); err != nil {
+		return fmt.Errorf("delete proxy results: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM proxies WHERE id = ?`, int64(id))
 	if err != nil {
 		return fmt.Errorf("delete proxy: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func isConstraint(err error) bool {

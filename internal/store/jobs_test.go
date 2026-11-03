@@ -34,6 +34,364 @@ func enableSchedules(t *testing.T, db *Store, availability, speed bool) {
 	}
 }
 
+func TestCancelWinsBeforeOutcomeCommit(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.RequestJobCancel(ctx, job.ID, t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(2 * time.Second), State: domain.StateDown, Failure: &domain.Failure{Code: "timeout"}}
+	_, err = db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(2 * time.Second), ScheduleRevision: job.ScheduleRevision})
+	if !errors.Is(err, ErrJobCanceled) {
+		t.Fatalf("canceled outcome error=%v, want ErrJobCanceled", err)
+	}
+	got, err := db.GetJob(ctx, job.ID)
+	if err != nil || got.Status != domain.JobCanceled {
+		t.Fatalf("job after canceled outcome: %+v %v", got, err)
+	}
+	for _, query := range []string{
+		`SELECT COUNT(*) FROM availability_results`,
+		`SELECT COUNT(*) FROM proxy_state`,
+		`SELECT COUNT(*) FROM incidents`,
+		`SELECT COUNT(*) FROM events`,
+		`SELECT COUNT(*) FROM notification_outbox`,
+	} {
+		if n := countRows(t, db, query); n != 0 {
+			t.Fatalf("canceled outcome left %d rows in %s", n, query)
+		}
+	}
+}
+
+func TestCompletionRollbackLeavesNoPartialHistory(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	settings := domain.DefaultSettings()
+	settings.DownThreshold = 1
+	if err := db.PutSettings(ctx, settings, t0); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.db.ExecContext(ctx, `CREATE TRIGGER reject_outbox BEFORE INSERT ON notification_outbox BEGIN SELECT RAISE(ABORT, 'test outbox failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(time.Second), State: domain.StateDown, Failure: &domain.Failure{Code: "timeout"}}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(time.Second), ScheduleRevision: job.ScheduleRevision}); err == nil {
+		t.Fatal("expected outbox insert to fail")
+	}
+	for _, query := range []string{
+		`SELECT COUNT(*) FROM availability_results`,
+		`SELECT COUNT(*) FROM proxy_state`,
+		`SELECT COUNT(*) FROM incidents`,
+		`SELECT COUNT(*) FROM events`,
+		`SELECT COUNT(*) FROM notification_outbox`,
+	} {
+		if n := countRows(t, db, query); n != 0 {
+			t.Fatalf("failed outcome left %d rows in %s", n, query)
+		}
+	}
+	got, err := db.GetJob(ctx, job.ID)
+	if err != nil || got.Status != domain.JobRunning {
+		t.Fatalf("failed transaction changed job state: %+v %v", got, err)
+	}
+}
+
+func TestCompletionWinsBeforeLateCancel(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(time.Second), State: domain.StateUp}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(time.Second), ScheduleRevision: job.ScheduleRevision}); err != nil {
+		t.Fatalf("commit outcome: %v", err)
+	}
+	if _, err := db.RequestJobCancel(ctx, job.ID, t0.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cancel completed job error = %v, want conflict", err)
+	}
+}
+
+func TestCompletionRetryDoesNotDoubleCountAndRetainedResultKeepsJobIdentity(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	settings := domain.DefaultSettings()
+	settings.DownThreshold = 1
+	if err := db.PutSettings(ctx, settings, t0); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(time.Second), State: domain.StateDown, Failure: &domain.Failure{Code: "timeout"}}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(time.Second), ScheduleRevision: job.ScheduleRevision}); err != nil {
+		t.Fatalf("first completion: %v", err)
+	}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(2 * time.Second), ScheduleRevision: job.ScheduleRevision}); err != nil {
+		t.Fatalf("retry completion: %v", err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM availability_results WHERE job_id = ?`, job.ID); n != 1 {
+		t.Fatalf("results for job = %d, want 1", n)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM proxy_state WHERE proxy_id = ? AND failure_streak = 1`, int64(id)); n != 1 {
+		t.Fatalf("retry double-counted failure streak: %d", n)
+	}
+	newer, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0.Add(2*time.Second), t0.Add(2*time.Second))
+	if err != nil || len(newer.New) != 1 {
+		t.Fatalf("enqueue newer observation: %+v %v", newer, err)
+	}
+	newerJob, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0.Add(2*time.Second))
+	if err != nil || !ok {
+		t.Fatalf("claim newer job: ok=%v err=%v", ok, err)
+	}
+	newerResult := domain.Availability{ProxyID: id, CheckedAt: t0.Add(3 * time.Second), State: domain.StateUp}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: newerJob.ID, Result: newerResult, CompletedAt: t0.Add(3 * time.Second), ScheduleRevision: newerJob.ScheduleRevision}); err != nil {
+		t.Fatalf("complete newer job: %v", err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM availability_results WHERE job_id = ?`, newerJob.ID); n != 1 {
+		t.Fatalf("new retained result identity count = %d, want 1", n)
+	}
+	if _, err := db.Prune(ctx, t0.Add(24*time.Hour), 100); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM jobs WHERE id = ?`, newerJob.ID); n != 1 {
+		t.Fatal("job referenced by retained result was pruned")
+	}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(25 * time.Hour), ScheduleRevision: job.ScheduleRevision}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pruned completion replay error = %v, want not found", err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM availability_results`); n != 1 {
+		t.Fatalf("pruned completion replay recreated history: count=%d", n)
+	}
+}
+
+func TestCommitSpeedJobOutcomeHonorsCancellationIntent(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckSpeed, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckSpeed, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.RequestJobCancel(ctx, job.ID, t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	result := domain.Speed{ProxyID: id, CheckedAt: t0.Add(2 * time.Second), Provider: "fixture", Method: "fixture"}
+	if err := db.CompleteSpeed(ctx, domain.SpeedCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(2 * time.Second), ScheduleRevision: job.ScheduleRevision}); !errors.Is(err, ErrJobCanceled) {
+		t.Fatalf("canceled speed outcome error=%v, want ErrJobCanceled", err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM speed_results`); n != 0 {
+		t.Fatalf("canceled speed result count = %d", n)
+	}
+	got, err := db.GetJob(ctx, job.ID)
+	if err != nil || got.Status != domain.JobCanceled {
+		t.Fatalf("job state: %+v %v", got, err)
+	}
+}
+
+func TestCanceledManualRunningJobPreservesSchedule(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: time.Hour}
+	if err := db.PutSettings(ctx, settings, t0); err != nil {
+		t.Fatal(err)
+	}
+	next := t0.Add(30 * time.Minute)
+	if err := db.SetNextRun(ctx, id, domain.CheckAvailability, &next); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.RequestJobCancel(ctx, job.ID, t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishJob(ctx, job.ID, domain.JobCanceled, t0.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	states, err := db.ListSchedules(ctx)
+	if err != nil || len(states) != 1 || states[0].NextAvailability == nil || !states[0].NextAvailability.Equal(next) {
+		t.Fatalf("canceling manual running job changed next run: states=%+v err=%v", states, err)
+	}
+}
+
+func TestCancelRunningScheduledJobAdvancesScheduleImmediately(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: time.Hour}
+	if err := db.PutSettings(ctx, settings, t0); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceScheduled, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.RequestJobCancel(ctx, job.ID, t0.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	states, err := db.ListSchedules(ctx)
+	if err != nil || len(states) != 1 || states[0].NextAvailability == nil || !states[0].NextAvailability.Equal(t0.Add(time.Hour+time.Second)) {
+		t.Fatalf("scheduled cancellation did not advance next run atomically: states=%+v err=%v", states, err)
+	}
+}
+
+func TestCrossTableCancelCompletionRaceIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	start := make(chan struct{})
+	cancelDone := make(chan error, 1)
+	completeDone := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := db.RequestJobCancel(ctx, job.ID, t0.Add(time.Second))
+		cancelDone <- err
+	}()
+	go func() {
+		<-start
+		result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(time.Second), State: domain.StateDown, Failure: &domain.Failure{Code: "timeout"}}
+		_, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(time.Second), ScheduleRevision: job.ScheduleRevision})
+		completeDone <- err
+	}()
+	close(start)
+	cancelErr, completeErr := <-cancelDone, <-completeDone
+	finished, err := db.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultCount := countRows(t, db, `SELECT COUNT(*) FROM availability_results WHERE job_id = ?`, job.ID)
+	switch finished.Status {
+	case domain.JobCanceled:
+		if cancelErr != nil || !errors.Is(completeErr, ErrJobCanceled) || resultCount != 0 {
+			t.Fatalf("cancel won with partial outcome: cancel=%v complete=%v results=%d job=%+v", cancelErr, completeErr, resultCount, finished)
+		}
+	case domain.JobDone:
+		if !errors.Is(cancelErr, ErrConflict) || completeErr != nil || resultCount != 1 {
+			t.Fatalf("completion won with inconsistent cancellation: cancel=%v complete=%v results=%d job=%+v", cancelErr, completeErr, resultCount, finished)
+		}
+	default:
+		t.Fatalf("unexpected terminal race state: status=%s cancel=%v complete=%v", finished.Status, cancelErr, completeErr)
+	}
+}
+
+func TestAvailabilityCompletionPreservesScheduleChangedWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	settings := domain.DefaultSettings()
+	settings.Availability = domain.Schedule{Enabled: true, Interval: 7 * 24 * time.Hour}
+	if err := db.PutSettings(ctx, settings, t0); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckAvailability, domain.SourceScheduled, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckAvailability, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	changedAt := t0.Add(time.Second)
+	settings.Availability.Interval = time.Minute
+	if err := db.PutSettings(ctx, settings, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	wantNext := changedAt.Add(time.Minute)
+	result := domain.Availability{ProxyID: id, CheckedAt: t0.Add(2 * time.Second), State: domain.StateUp}
+	if _, err := db.CompleteAvailability(ctx, domain.AvailabilityCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(2 * time.Second), ScheduleRevision: job.ScheduleRevision}); err != nil {
+		t.Fatal(err)
+	}
+	states, err := db.ListSchedules(ctx)
+	if err != nil || len(states) != 1 || states[0].NextAvailability == nil || !states[0].NextAvailability.Equal(wantNext) {
+		t.Fatalf("completion overwrote changed schedule: states=%+v want next %v err=%v", states, wantNext, err)
+	}
+	finished, err := db.GetJob(ctx, job.ID)
+	if err != nil || finished.Status != domain.JobDone {
+		t.Fatalf("old job outcome did not commit: %+v %v", finished, err)
+	}
+}
+
+func TestSpeedCompletionFailureNeverMarksJobDone(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	id := addProxies(t, db, 1)[0]
+	queued, err := db.EnqueueJobs(ctx, []domain.ProxyID{id}, domain.CheckSpeed, domain.SourceManual, t0, t0)
+	if err != nil || len(queued.New) != 1 {
+		t.Fatalf("enqueue: %+v %v", queued, err)
+	}
+	job, ok, err := db.ClaimJob(ctx, domain.CheckSpeed, t0)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, err := db.db.ExecContext(ctx, `CREATE TRIGGER reject_speed_job_finish BEFORE UPDATE OF status ON jobs WHEN NEW.status = 'done' BEGIN SELECT RAISE(ABORT, 'test job finish failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	result := domain.Speed{ProxyID: id, CheckedAt: t0.Add(time.Second), Provider: "fixture", Method: "fixture"}
+	if err := db.CompleteSpeed(ctx, domain.SpeedCompletion{JobID: job.ID, Result: result, CompletedAt: t0.Add(time.Second), ScheduleRevision: job.ScheduleRevision}); err == nil {
+		t.Fatal("expected job update failure")
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM speed_results`); n != 0 {
+		t.Fatalf("failed completion left %d speed results", n)
+	}
+	got, err := db.GetJob(ctx, job.ID)
+	if err != nil || got.Status != domain.JobRunning {
+		t.Fatalf("failed completion marked job done: %+v %v", got, err)
+	}
+}
+
 func TestSettingsDefaultsRoundTripAndValidation(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrated(t)
@@ -264,7 +622,7 @@ func TestFinishCancelAndInterruptTransitions(t *testing.T) {
 	_, _ = db.EnqueueJobs(ctx, ids, domain.CheckAvailability, domain.SourceManual, t0, t0)
 	running, _, _ := db.ClaimJob(ctx, domain.CheckAvailability, t0)
 
-	// Cancelling a pending job is immediate; a running one is only reported.
+	// Pending jobs cancel immediately; running jobs retain durable intent.
 	list, _ := db.ListActiveJobs(ctx)
 	var pending domain.Job
 	for _, j := range list {
@@ -273,15 +631,15 @@ func TestFinishCancelAndInterruptTransitions(t *testing.T) {
 			break
 		}
 	}
-	job, canceled, err := db.CancelPendingJob(ctx, pending.ID, t0)
-	if err != nil || !canceled || job.Status != domain.JobCanceled || job.FinishedAt == nil {
-		t.Fatalf("%+v %v %v", job, canceled, err)
+	job, err := db.RequestJobCancel(ctx, pending.ID, t0)
+	if err != nil || job.Status != domain.JobCanceled || job.FinishedAt == nil {
+		t.Fatalf("%+v %v", job, err)
 	}
-	job, canceled, err = db.CancelPendingJob(ctx, running.ID, t0)
-	if err != nil || canceled || job.Status != domain.JobRunning {
-		t.Fatalf("running job: %+v %v %v", job, canceled, err)
+	job, err = db.RequestJobCancel(ctx, running.ID, t0)
+	if err != nil || job.Status != domain.JobRunning || job.CancelRequestedAt == nil {
+		t.Fatalf("running job: %+v %v", job, err)
 	}
-	if _, _, err := db.CancelPendingJob(ctx, 9999, t0); !errors.Is(err, ErrNotFound) {
+	if _, err := db.RequestJobCancel(ctx, 9999, t0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing job: %v", err)
 	}
 	if err := db.FinishJob(ctx, running.ID, domain.JobDone, t0.Add(time.Second)); err != nil {
@@ -294,7 +652,7 @@ func TestFinishCancelAndInterruptTransitions(t *testing.T) {
 		t.Fatalf("non-terminal status accepted: %v", err)
 	}
 	got, _ := db.GetJob(ctx, running.ID)
-	if got.Status != domain.JobDone || got.FinishedAt == nil || !got.FinishedAt.Equal(t0.Add(time.Second)) {
+	if got.Status != domain.JobCanceled || got.FinishedAt == nil || !got.FinishedAt.Equal(t0.Add(time.Second)) {
 		t.Fatalf("%+v", got)
 	}
 }

@@ -39,6 +39,33 @@ func (s *Store) AddAvailability(ctx context.Context, a domain.Availability) erro
 	return nil
 }
 
+func addAvailabilityTx(ctx context.Context, tx *sql.Tx, a domain.Availability) error {
+	return addAvailabilityForJobTx(ctx, tx, 0, a)
+}
+
+func addAvailabilityForJobTx(ctx context.Context, tx *sql.Tx, jobID int64, a domain.Availability) error {
+	var code, msg string
+	if a.Failure != nil {
+		code, msg = a.Failure.Code, a.Failure.Message
+	}
+	var identity any
+	if jobID > 0 {
+		identity = jobID
+	}
+	_, err := tx.ExecContext(ctx,
+		`INSERT INTO availability_results (proxy_id, checked_at, state, exit_ip, endpoint, duration_us, failure_code, failure_message, job_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		int64(a.ProxyID), a.CheckedAt.UTC().UnixMilli(), string(a.State), a.ExitIP, a.Endpoint,
+		a.Duration.Microseconds(), code, msg, identity)
+	if err != nil {
+		if strings.Contains(err.Error(), "FOREIGN KEY") {
+			return ErrNotFound
+		}
+		return fmt.Errorf("add availability: %w", err)
+	}
+	return nil
+}
+
 const availabilityColumns = `proxy_id, checked_at, state, exit_ip, endpoint, duration_us, failure_code, failure_message`
 
 func scanAvailability(r rowScanner) (domain.Availability, error) {

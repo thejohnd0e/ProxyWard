@@ -35,6 +35,14 @@ type Availability struct {
 	Failure          *Failure
 }
 
+// AvailabilityCompletion binds a check result to the job that produced it.
+type AvailabilityCompletion struct {
+	JobID            int64
+	Result           Availability
+	CompletedAt      time.Time
+	ScheduleRevision int64
+}
+
 // Transfer is one directional speed sample.
 type Transfer struct {
 	Bytes         int64
@@ -51,4 +59,12 @@ type Speed struct {
 	Provider, Method string
 	Download, Upload Transfer
 	TotalBytes       int64 // includes warmup and failed transfers
+}
+
+// SpeedCompletion binds a speed result to the job that produced it.
+type SpeedCompletion struct {
+	JobID            int64
+	Result           Speed
+	CompletedAt      time.Time
+	ScheduleRevision int64
 }
