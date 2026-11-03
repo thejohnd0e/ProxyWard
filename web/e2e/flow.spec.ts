@@ -18,7 +18,7 @@ const checkAll = async () => {
 test.beforeAll(async ({ browser, request }) => {
   fx = await fixtures(request);
   page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: 'e2e/.auth/state.json' })).newPage();
-  await page.goto('/');
+  await page.goto('/proxies');
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 });
 test.afterAll(async () => {
@@ -132,8 +132,12 @@ test('shows country, city and network without any key, and the source can be cho
   await expect(row(fx.proxies[0]!.name).getByText('Berlin, Germany')).toBeVisible();
   await expect(row(`127.0.0.1:${fx.proxies[1]!.port}`).getByText('New York, United States')).toBeVisible();
   await expect(row(`127.0.0.1:${fx.proxies[2]!.port}`).getByText('Tokyo, Japan')).toBeVisible();
+  // The Network column is hidden between 861 and 1500 px by design, so this
+  // check and its screenshot use a wider viewport.
+  await page.setViewportSize({ width: 1600, height: 900 });
   await expect(row(fx.proxies[0]!.name).getByText(/AS64500 Example GmbH/)).toBeVisible();
   await shot(page, info, 'with-geo');
+  await page.setViewportSize({ width: 1440, height: 900 });
 });
 
 test('measures speed and keeps a missing value as a dash', async ({}, info) => {

@@ -4,11 +4,11 @@ import { setTheme, shot } from './helpers';
 // Runs after the desktop scenario on the same stand, so there is data to look at.
 test('the dashboard works at 375 px without sideways scrolling', async ({ page }, info) => {
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Berlin SOCKS' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Fleet' }).getByRole('link', { name: 'Berlin SOCKS' })).toBeVisible();
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await shot(page, info, 'proxies');
+  await shot(page, info, 'overview');
 
   await setTheme(page, 'Dark');
   await shot(page, info, 'proxies-dark');
@@ -56,7 +56,7 @@ test('the export dialog fits and stays usable on a phone', async ({ page }, info
 });
 
 test('dialogs fit and can be operated on a phone', async ({ page }, info) => {
-  await page.goto('/');
+  await page.goto('/proxies');
   await page.getByRole('button', { name: 'Add proxy' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add proxy' });
   await expect(dialog).toBeVisible();

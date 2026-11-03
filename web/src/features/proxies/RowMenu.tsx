@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Props {
   /** The proxy name, used in the accessible name of the button. */
@@ -105,7 +106,7 @@ export function RowMenu({ name, onEdit, onDelete, paused, onToggleMonitoring }: 
       >
         More <span aria-hidden="true">▾</span>
       </button>
-      {place ? (
+      {place ? createPortal(
         <div ref={menu} id={menuId} role="menu" aria-label={`Actions for ${name}`} className="menu" style={place}>
           <button type="button" role="menuitem" className="menu__item" onClick={() => choose(onEdit)}>
             Edit
@@ -116,7 +117,8 @@ export function RowMenu({ name, onEdit, onDelete, paused, onToggleMonitoring }: 
           <button type="button" role="menuitem" className="menu__item menu__item--danger" onClick={() => choose(onDelete)}>
             Delete
           </button>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
