@@ -24,9 +24,11 @@ const maxExportProxies = domain.MaxProxies
 var ErrExportTooLarge = errors.New("export too large")
 
 // ExportFilter selects the proxies and the inclusive time range of an export.
+// Limit caps the total number of records; zero means ExportMaxRecords.
 type ExportFilter struct {
 	From, To time.Time
 	ProxyIDs []domain.ProxyID
+	Limit    int
 }
 
 // ExportData is the secret-free part of the database that an export carries.
@@ -109,6 +111,10 @@ func (s *Store) Export(ctx context.Context, f ExportFilter) (ExportData, error) 
 		Availability: []ExportAvailability{},
 		Speed:        []ExportSpeed{},
 	}
+	limit := ExportMaxRecords
+	if f.Limit > 0 && f.Limit < limit {
+		limit = f.Limit
+	}
 	ids := exportIDs(f.ProxyIDs)
 	in := placeholders(len(ids))
 	from, to := f.From.UTC().UnixMilli(), f.To.UTC().UnixMilli()
@@ -119,16 +125,16 @@ func (s *Store) Export(ctx context.Context, f ExportFilter) (ExportData, error) 
 	if len(data.Proxies) != len(ids) {
 		return ExportData{}, ErrNotFound
 	}
-	if err := exportEvents(ctx, tx, in, ids, from, to, &data); err != nil {
+	if err := exportEvents(ctx, tx, in, ids, from, to, limit, &data); err != nil {
 		return ExportData{}, err
 	}
-	if err := exportAvailability(ctx, tx, in, ids, from, to, &data); err != nil {
+	if err := exportAvailability(ctx, tx, in, ids, from, to, limit, &data); err != nil {
 		return ExportData{}, err
 	}
-	if err := exportSpeed(ctx, tx, in, ids, from, to, &data); err != nil {
+	if err := exportSpeed(ctx, tx, in, ids, from, to, limit, &data); err != nil {
 		return ExportData{}, err
 	}
-	if total := len(data.Events) + len(data.Availability) + len(data.Speed); total > ExportMaxRecords {
+	if total := len(data.Events) + len(data.Availability) + len(data.Speed); total > limit {
 		return ExportData{}, ErrExportTooLarge
 	}
 	return data, nil
@@ -178,8 +184,8 @@ func exportProxies(ctx context.Context, tx *sql.Tx, in string, args []any, data 
 	return rows.Err()
 }
 
-func exportEvents(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, data *ExportData) error {
-	args := append(ids, from, to, ExportMaxRecords+1)
+func exportEvents(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, limit int, data *ExportData) error {
+	args := append(ids, from, to, limit+1)
 	rows, err := tx.QueryContext(ctx,
 		`SELECT id, proxy_id, kind, created_at FROM events
 		  WHERE proxy_id IN (`+in+`) AND created_at >= ? AND created_at <= ?
@@ -204,8 +210,8 @@ func exportEvents(ctx context.Context, tx *sql.Tx, in string, ids []any, from, t
 	return rows.Err()
 }
 
-func exportAvailability(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, data *ExportData) error {
-	args := append(ids, from, to, ExportMaxRecords+1)
+func exportAvailability(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, limit int, data *ExportData) error {
+	args := append(ids, from, to, limit+1)
 	rows, err := tx.QueryContext(ctx,
 		`SELECT id, proxy_id, checked_at, state, exit_ip, endpoint, duration_us, failure_code
 		   FROM availability_results
@@ -231,8 +237,8 @@ func exportAvailability(ctx context.Context, tx *sql.Tx, in string, ids []any, f
 	return rows.Err()
 }
 
-func exportSpeed(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, data *ExportData) error {
-	args := append(ids, from, to, ExportMaxRecords+1)
+func exportSpeed(ctx context.Context, tx *sql.Tx, in string, ids []any, from, to int64, limit int, data *ExportData) error {
+	args := append(ids, from, to, limit+1)
 	rows, err := tx.QueryContext(ctx,
 		`SELECT id, proxy_id, checked_at, provider, method,
 		        download_bytes, download_us, download_mbps, download_low_conf, download_fail_code,

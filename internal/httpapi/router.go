@@ -31,6 +31,8 @@ type Server struct {
 	geo       GeoPeeker
 	reconcile func(context.Context) error
 	limiter   *auth.LoginLimiter
+	// exportLimit is the record ceiling of one JSON export.
+	exportLimit int
 }
 
 // Option customizes the API server.
@@ -47,7 +49,7 @@ func WithLogger(l *slog.Logger) Option { return func(s *Server) { s.logger = l }
 
 // New builds the API handler. Routes are registered under /api/.
 func New(db *store.Store, cipher *secrets.Cipher, opts ...Option) http.Handler {
-	s := &Server{db: db, cipher: cipher, clock: domain.SystemClock{}, logger: slog.Default()}
+	s := &Server{db: db, cipher: cipher, clock: domain.SystemClock{}, logger: slog.Default(), exportLimit: store.ExportMaxRecords}
 	for _, o := range opts {
 		o(s)
 	}

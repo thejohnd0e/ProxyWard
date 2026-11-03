@@ -59,7 +59,7 @@ type env struct {
 	bodies     []string // every response body, for leak checks
 }
 
-func newEnv(t *testing.T, withAdmin bool) *env {
+func newEnv(t *testing.T, withAdmin bool, opts ...Option) *env {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"))
@@ -85,10 +85,11 @@ func newEnv(t *testing.T, withAdmin bool) *env {
 	canceler := &fakeCanceler{}
 	queue := &jobs.Queue{Store: db, Clock: clock, Canceler: canceler}
 	e := &env{t: t, db: db, clock: clock, logs: logs, canceler: canceler}
-	e.srv = httptest.NewServer(New(db, cipher, WithClock(clock), WithLogger(logger), WithJobs(queue), WithGeo(peekFunc(func(ctx context.Context, ip netip.Addr) (geo.GeoView, error) {
+	options := []Option{WithClock(clock), WithLogger(logger), WithJobs(queue), WithGeo(peekFunc(func(ctx context.Context, ip netip.Addr) (geo.GeoView, error) {
 		return fakePeek{e.geoViews}.Peek(ctx, ip)
 	})),
-		WithReconcile(func(context.Context) error { e.reconciles.Add(1); return nil })))
+		WithReconcile(func(context.Context) error { e.reconciles.Add(1); return nil })}
+	e.srv = httptest.NewServer(New(db, cipher, append(options, opts...)...))
 	t.Cleanup(e.srv.Close)
 	return e
 }

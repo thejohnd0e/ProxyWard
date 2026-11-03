@@ -25,6 +25,7 @@ func (s *Server) registerSettingsRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/settings/telegram/test", protected(s.telegramTest))
 	mux.Handle("POST /api/settings/speed/resume", protected(s.speedResume))
 	mux.Handle("GET /api/events", protected(s.listEvents))
+	mux.Handle("POST /api/exports", protected(s.createExport))
 }
 
 type scheduleUpdate struct {
