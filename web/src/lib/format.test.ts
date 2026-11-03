@@ -24,12 +24,13 @@ describe('formatMbps', () => {
 });
 
 describe('formatDuration', () => {
-  it('uses ms below a second and seconds above', () => {
+  it('always displays durations as milliseconds', () => {
     expect(formatDuration(0)).toBe('0 ms');
     expect(formatDuration(124)).toBe('124 ms');
     expect(formatDuration(999)).toBe('999 ms');
-    expect(formatDuration(1000)).toBe('1.0 s');
-    expect(formatDuration(12_345)).toBe('12.3 s');
+    expect(formatDuration(1000)).toBe('1,000 ms');
+    expect(formatDuration(8500)).toBe('8,500 ms');
+    expect(formatDuration(12_345)).toBe('12,345 ms');
     expect(formatDuration(null)).toBe('—');
   });
 });

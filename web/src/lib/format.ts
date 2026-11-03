@@ -16,8 +16,7 @@ export function formatMbps(mbps: number | null | undefined): string {
 
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return DASH;
-  if (ms < 1000) return `${integer.format(ms)} ms`;
-  return `${oneDecimal.format(ms / 1000)} s`;
+  return `${integer.format(ms)} ms`;
 }
 
 export function formatBytes(bytes: number): string {
