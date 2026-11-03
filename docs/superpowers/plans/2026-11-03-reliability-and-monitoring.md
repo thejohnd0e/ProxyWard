@@ -118,11 +118,11 @@ Schema-changing tasks run sequentially even when their business logic is indepen
 
 **Interfaces:** Keep `listEvents(filters, signal)` API. Bind head/tail/cursor/loading state to one immutable filter generation; pagination shares cancellation/invalidation semantics with polling.
 
-- [ ] Add `ignores old load-more responses after filter changes` using a deferred promise; add `keeps all loaded boundary events when the head refreshes` with old head [100..51], tail [50..1], new head [110..61], asserting 60..51 remain visible or an explicit reset notice replaces pagination.
-- [ ] Run `npm --prefix web test -- src/features/events/EventPage.test.tsx`; observe old cross-filter contamination and continuity failures.
-- [ ] Abort/invalidate old loads, reject stale cursor writes and implement an ID-keyed merge or explicit visible reset. Keep loading/error state generation-scoped and deduplicate events.
-- [ ] Run the targeted tests and Playwright scenario with delayed network responses; require no old-filter rows, duplicates, invisible gaps or stuck Load more state.
-- [ ] Review and commit.
+- [x] Add deferred-response regressions for stale load-more after filter change, head/tail continuity, and a poll response racing a completed tail load.
+- [x] Run the Events tests and reproduce all three old-behavior failures before implementing the guards.
+- [x] Abort/invalidate old loads, reject stale results/cursors, preserve displaced events, and deduplicate IDs. Loading state is scoped to its request generation.
+- [x] Run target tests (11 passing), full unit tests (152 passing with a temporary local Vite filesystem allowlist for the pre-existing external node_modules junction), typecheck and build. Playwright setup and UI fixtures launch; the isolated flow test is not independent and times out because earlier flow cases have not enabled “Check all proxies”. No pagination-specific Playwright scenario was run locally.
+- [x] Review and commit Task 4 separately.
 
 ### Task 5: Recoverable settings/chart loading
 

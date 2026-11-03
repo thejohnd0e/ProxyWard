@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { listEvents, listProxies } from '../../api/endpoints';
@@ -37,6 +37,15 @@ export function describeDelivery(d: AppEvent['delivery']): string {
 
 type KindFilter = 'all' | 'proxy_down' | 'proxy_recovered';
 
+function uniqueEvents(events: AppEvent[]): AppEvent[] {
+  const seen = new Set<number>();
+  return events.filter((event) => {
+    if (seen.has(event.id)) return false;
+    seen.add(event.id);
+    return true;
+  });
+}
+
 export function EventPage() {
   const [kind, setKind] = useState<KindFilter>('all');
   const [proxyId, setProxyId] = useState<number | null>(null);
@@ -50,6 +59,19 @@ export function EventPage() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [more, setMore] = useState(false);
+  const loadMoreEpoch = useRef(0);
+  const loadMoreController = useRef<AbortController | null>(null);
+  const headRef = useRef(head);
+  const tailRef = useRef(tail);
+  headRef.current = head;
+  tailRef.current = tail;
+
+  const invalidateLoadMore = () => {
+    loadMoreEpoch.current += 1;
+    loadMoreController.current?.abort();
+    loadMoreController.current = null;
+    setMore(false);
+  };
 
   const filters = useMemo(() => ({ kinds: kind === 'all' ? undefined : [kind], proxyId }), [kind, proxyId]);
 
@@ -67,19 +89,33 @@ export function EventPage() {
 
   // Changing a filter starts the list over.
   useEffect(() => {
+    invalidateLoadMore();
     setHead([]);
     setTail([]);
     setCursor(null);
     setLoaded(false);
+    setMore(false);
   }, [filters]);
+
+  useEffect(
+    () => () => {
+      loadMoreController.current?.abort();
+    },
+    [],
+  );
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
       try {
         const page = await listEvents({ ...filters, cursor: null }, signal);
         if (signal.aborted) return;
+        if (tailRef.current.length > 0) {
+          const freshIDs = new Set(page.events.map((event) => event.id));
+          const displaced = headRef.current.filter((event) => !freshIDs.has(event.id));
+          setTail((previous) => uniqueEvents([...displaced, ...previous]).filter((event) => !freshIDs.has(event.id)));
+        }
         setHead(page.events);
-        setCursor((prev) => (tail.length === 0 ? page.next_cursor : prev));
+        setCursor((prev) => (tailRef.current.length === 0 ? page.next_cursor : prev));
         setLoaded(true);
         setError(null);
       } catch (err) {
@@ -87,21 +123,30 @@ export function EventPage() {
         setError(err instanceof ApiError ? err.message : 'Could not load events.');
       }
     },
-    [filters, tail.length],
+    [filters],
   );
   useVisiblePolling(refresh, 5000, filters);
 
   const loadMore = async () => {
-    if (cursor === null) return;
+    if (cursor === null || loadMoreController.current !== null) return;
+    const epoch = loadMoreEpoch.current;
+    const controller = new AbortController();
+    loadMoreController.current = controller;
     setMore(true);
     try {
-      const page = await listEvents({ ...filters, cursor });
-      setTail((prev) => [...prev, ...page.events]);
+      const page = await listEvents({ ...filters, cursor }, controller.signal);
+      if (controller.signal.aborted || epoch !== loadMoreEpoch.current) return;
+      setTail((prev) => uniqueEvents([...prev, ...page.events]));
       setCursor(page.next_cursor);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not load more events.');
+      if (!controller.signal.aborted && epoch === loadMoreEpoch.current) {
+        setError(err instanceof ApiError ? err.message : 'Could not load more events.');
+      }
     } finally {
-      setMore(false);
+      if (loadMoreController.current === controller) {
+        loadMoreController.current = null;
+        if (epoch === loadMoreEpoch.current) setMore(false);
+      }
     }
   };
 
@@ -125,7 +170,7 @@ export function EventPage() {
       <div className="toolbar">
         <div className="field">
           <label htmlFor="event-kind">Event type</label>
-          <select id="event-kind" value={kind} onChange={(e) => setKind(e.target.value as KindFilter)}>
+          <select id="event-kind" value={kind} onChange={(e) => { invalidateLoadMore(); setKind(e.target.value as KindFilter); }}>
             <option value="all">All events</option>
             <option value="proxy_down">Went down</option>
             <option value="proxy_recovered">Recovered</option>
@@ -133,7 +178,7 @@ export function EventPage() {
         </div>
         <div className="field">
           <label htmlFor="event-proxy">Proxy</label>
-          <select id="event-proxy" value={proxyId ?? ''} onChange={(e) => setProxyId(e.target.value === '' ? null : Number(e.target.value))}>
+          <select id="event-proxy" value={proxyId ?? ''} onChange={(e) => { invalidateLoadMore(); setProxyId(e.target.value === '' ? null : Number(e.target.value)); }}>
             <option value="">All proxies</option>
             {proxies.map((p) => (
               <option key={p.id} value={p.id}>
